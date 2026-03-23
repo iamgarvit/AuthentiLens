@@ -1,0 +1,8 @@
+*.DS_Store
+*.vscode
+*.pycache
+
+/eval_env
+/IMD2020
+requirements_eval.txt
+test_file.ipynb

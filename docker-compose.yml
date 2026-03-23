@@ -1,0 +1,54 @@
+# ============================================================================
+# ApertureAuthentiLens — Docker Compose Orchestration
+# ============================================================================
+# Two-service microservices architecture:
+#   - backend:  FastAPI + PyTorch ML inference engine  (port 8000)
+#   - frontend: Streamlit interactive web UI           (port 8501)
+# ============================================================================
+
+
+services:
+  # --------------------------------------------------------------------------
+  # Backend: FastAPI server with PyTorch inference pipeline
+  # --------------------------------------------------------------------------
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: aperture_backend
+    ports:
+      - "8000:8000"
+    networks:
+      - aperture_net
+    environment:
+      - PYTHONUNBUFFERED=1
+    # Healthcheck to confirm the API is responsive before frontend connects
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+
+  # --------------------------------------------------------------------------
+  # Frontend: Streamlit web UI for image upload and visualization
+  # --------------------------------------------------------------------------
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: aperture_frontend
+    ports:
+      - "8501:8501"
+    networks:
+      - aperture_net
+    environment:
+      - PYTHONUNBUFFERED=1
+      - BACKEND_URL=http://backend:8000
+    depends_on:
+      backend:
+        condition: service_started
+
+networks:
+  aperture_net:
+    driver: bridge
