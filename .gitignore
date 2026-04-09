@@ -11,4 +11,7 @@ checkpoints_resnet/
 checkpoints_efficientnet/
 Archive.zip
 train_deeplab.py
-inference_classifiers.py
+inference_classifiers.pyArchive.zip
+checkpoints_deeplab/
+*__pycache__/
+inferece_classifiers.py

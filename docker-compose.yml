@@ -20,6 +20,10 @@ services:
       - "8000:8000"
     networks:
       - aperture_net
+    volumes:
+      - ./checkpoints_efficientnet:/app/checkpoints_efficientnet
+      - ./checkpoints_deeplab:/app/checkpoints_deeplab
+      - ./checkpoints_resnet:/app/checkpoints_resnet
     environment:
       - PYTHONUNBUFFERED=1
     # Healthcheck to confirm the API is responsive before frontend connects
