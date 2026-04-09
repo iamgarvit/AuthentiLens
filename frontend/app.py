@@ -5,7 +5,7 @@ import requests
 import streamlit as st
 from PIL import Image
 
-BACKEND_URL = os.getenv("BACKEND_URL", "http://backend:8000")
+BACKEND_URL = os.getenv("BACKEND_URL", "http://localhost:8000")
 ANALYZE_ENDPOINT = f"{BACKEND_URL}/analyze"
 
 st.set_page_config(page_title="AI Forensics Pipeline", layout="wide")
@@ -50,16 +50,26 @@ if uploaded_file is not None:
             st.image(original_rgb, caption="Original Image", use_container_width=True)
         with col2:
             if mask:
+                # mask is a probability map [0, 1] from the model
                 mask_np = np.array(mask, dtype=np.float32)
                 h, w = original_rgb.shape[:2]
+                # Resize probability map back to original image size
                 mask_resized = cv2.resize(mask_np, (w, h))
 
-                # Create heatmap overlay
+                # Apply thresholding to probability map (matches notebook's predict_single)
+                threshold = 0.5
+                bool_mask = mask_resized > threshold
+
+                # Create heatmap overlay from probability map (before thresholding)
+                # This shows the continuous confidence, not just binary regions
                 heatmap = cv2.applyColorMap((mask_resized * 255).astype(np.uint8), cv2.COLORMAP_INFERNO)
                 heatmap_rgb = cv2.cvtColor(heatmap, cv2.COLOR_BGR2RGB)
                 
-                # Composite
-                overlay = cv2.addWeighted(heatmap_rgb, 0.55, original_rgb, 0.45, 0)
+                # Composite: blend only the regions above threshold
+                overlay = original_rgb.copy()
+                blended = cv2.addWeighted(heatmap_rgb, 0.6, original_rgb, 0.4, 0)
+                overlay[bool_mask] = blended[bool_mask]
+                
                 st.image(overlay, caption="DeepLabV3 Manipulation Mask", use_container_width=True)
 
     st.markdown("---")

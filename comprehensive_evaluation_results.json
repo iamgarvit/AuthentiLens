@@ -1,0 +1,134 @@
+{
+    "ResNet_CIFake": {
+        "sd2-fr-testing_evaluation": {
+            "dataset_type": "Original SD2 Generated full FAKE images",
+            "total_images": 1029,
+            "accuracy": 1.0,
+            "mean_confidence_correct": 0.9988513764996803,
+            "std_confidence_correct": 0.01760911344064079,
+            "mean_confidence_incorrect": 0.0,
+            "std_confidence_incorrect": 0.0
+        },
+        "sd2-classification_test_evaluation": {
+            "dataset_type": "Cropped balancing of FAKE vs REAL",
+            "total_images": 1632,
+            "overall_accuracy": 0.5042892156862745,
+            "fake_accuracy": 0.991421568627451,
+            "real_accuracy": 0.01715686274509804,
+            "mean_confidence_correct": 0.9958664358458861,
+            "std_confidence_correct": 0.03456152227028951,
+            "mean_confidence_incorrect": 0.9980385201086367,
+            "std_confidence_incorrect": 0.01707252499766079
+        }
+    },
+    "ResNet_SD_1e-4": {
+        "sd2-fr-testing_evaluation": {
+            "dataset_type": "Original SD2 Generated full FAKE images",
+            "total_images": 1029,
+            "accuracy": 0.6122448979591837,
+            "mean_confidence_correct": 0.6973823422477359,
+            "std_confidence_correct": 0.14811430992691288,
+            "mean_confidence_incorrect": 0.6994959801659548,
+            "std_confidence_incorrect": 0.1457378593834107
+        },
+        "sd2-classification_test_evaluation": {
+            "dataset_type": "Cropped balancing of FAKE vs REAL",
+            "total_images": 1632,
+            "overall_accuracy": 0.6194852941176471,
+            "fake_accuracy": 0.5796568627450981,
+            "real_accuracy": 0.6593137254901961,
+            "mean_confidence_correct": 0.7279454005106503,
+            "std_confidence_correct": 0.14929765096343486,
+            "mean_confidence_incorrect": 0.6549624553049244,
+            "std_confidence_incorrect": 0.11799107061773333
+        }
+    },
+    "ResNet_SD_2.5e-5": {
+        "sd2-fr-testing_evaluation": {
+            "dataset_type": "Original SD2 Generated full FAKE images",
+            "total_images": 1029,
+            "accuracy": 0.5898931000971818,
+            "mean_confidence_correct": 0.7266502291013225,
+            "std_confidence_correct": 0.16178145399816066,
+            "mean_confidence_incorrect": 0.7045475549607481,
+            "std_confidence_incorrect": 0.14999370297978712
+        },
+        "sd2-classification_test_evaluation": {
+            "dataset_type": "Cropped balancing of FAKE vs REAL",
+            "total_images": 1632,
+            "overall_accuracy": 0.6311274509803921,
+            "fake_accuracy": 0.6102941176470589,
+            "real_accuracy": 0.6519607843137255,
+            "mean_confidence_correct": 0.7362888282363854,
+            "std_confidence_correct": 0.15950747683474287,
+            "mean_confidence_incorrect": 0.6600021000122311,
+            "std_confidence_incorrect": 0.12846655122671902
+        }
+    },
+    "EfficientNet_CIFake": {
+        "sd2-fr-testing_evaluation": {
+            "dataset_type": "Original SD2 Generated full FAKE images",
+            "total_images": 1029,
+            "accuracy": 0.6822157434402333,
+            "mean_confidence_correct": 0.9485134573234113,
+            "std_confidence_correct": 0.1125210105245958,
+            "mean_confidence_incorrect": 0.9181601244739801,
+            "std_confidence_incorrect": 0.12917464973961862
+        },
+        "sd2-classification_test_evaluation": {
+            "dataset_type": "Cropped balancing of FAKE vs REAL",
+            "total_images": 1632,
+            "overall_accuracy": 0.5,
+            "fake_accuracy": 0.6740196078431373,
+            "real_accuracy": 0.32598039215686275,
+            "mean_confidence_correct": 0.9336095050561661,
+            "std_confidence_correct": 0.12685431498871616,
+            "mean_confidence_incorrect": 0.9244517284427204,
+            "std_confidence_incorrect": 0.13173444887106192
+        }
+    },
+    "EfficientNet_SD_1e-4": {
+        "sd2-fr-testing_evaluation": {
+            "dataset_type": "Original SD2 Generated full FAKE images",
+            "total_images": 1029,
+            "accuracy": 0.7113702623906706,
+            "mean_confidence_correct": 0.7803213415575809,
+            "std_confidence_correct": 0.1599000287875036,
+            "mean_confidence_incorrect": 0.6248986486232642,
+            "std_confidence_incorrect": 0.08738170811786104
+        },
+        "sd2-classification_test_evaluation": {
+            "dataset_type": "Cropped balancing of FAKE vs REAL",
+            "total_images": 1632,
+            "overall_accuracy": 0.602328431372549,
+            "fake_accuracy": 0.5514705882352942,
+            "real_accuracy": 0.6531862745098039,
+            "mean_confidence_correct": 0.7213229410282108,
+            "std_confidence_correct": 0.13778163982103053,
+            "mean_confidence_incorrect": 0.66885964492069,
+            "std_confidence_incorrect": 0.12158765612553248
+        }
+    },
+    "EfficientNet_SD_2.5e-5": {
+        "sd2-fr-testing_evaluation": {
+            "dataset_type": "Original SD2 Generated full FAKE images",
+            "total_images": 1029,
+            "accuracy": 0.7142857142857143,
+            "mean_confidence_correct": 0.7061259684108553,
+            "std_confidence_correct": 0.14172632736147003,
+            "mean_confidence_incorrect": 0.5875955414609845,
+            "std_confidence_incorrect": 0.06037227636349247
+        },
+        "sd2-classification_test_evaluation": {
+            "dataset_type": "Cropped balancing of FAKE vs REAL",
+            "total_images": 1632,
+            "overall_accuracy": 0.6127450980392157,
+            "fake_accuracy": 0.508578431372549,
+            "real_accuracy": 0.7169117647058824,
+            "mean_confidence_correct": 0.6592434126734733,
+            "std_confidence_correct": 0.1170431958004419,
+            "mean_confidence_incorrect": 0.6257504735943638,
+            "std_confidence_incorrect": 0.09452212416251368
+        }
+    }
+}
