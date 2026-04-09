@@ -6,3 +6,9 @@
 /IMD2020
 requirements_eval.txt
 test_file.ipynb
+archive/
+checkpoints_resnet/
+checkpoints_efficientnet/
+Archive.zip
+train_deeplab.py
+inference_classifiers.py
