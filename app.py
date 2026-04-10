@@ -22,6 +22,8 @@ import streamlit as st
 import segmentation_models_pytorch as smp
 import torchvision.transforms.functional as TF
 import torchvision.transforms as T
+import time
+import psutil
 from PIL import Image
 import matplotlib.colors as mcolors
 from datetime import datetime
@@ -234,17 +236,20 @@ def run_classification_inference(models: dict, pil_image: Image.Image) -> dict:
 
     with torch.no_grad():
         for model_name, model in models.items():
+            start_t = time.time()
             output = model(image_tensor)
             probabilities = torch.softmax(output, dim=1)[0]
             confidence, predicted_idx = torch.max(probabilities, dim=0)
 
             pred_class = CLASS_NAMES.get(predicted_idx.item(), f"Class {predicted_idx.item()}")
             conf_value = confidence.item()
+            exec_time = time.time() - start_t
 
             results[model_name] = {
                 'class': pred_class,
                 'confidence': conf_value,
                 'confidence_pct': conf_value * 100,
+                'inference_time': exec_time,
                 'probabilities': {
                     CLASS_NAMES[0]: float(probabilities[0].item()) * 100,
                     CLASS_NAMES[1]: float(probabilities[1].item()) * 100,
@@ -437,23 +442,53 @@ for uploaded_file in uploaded_files:
         W, H = pil_image.size
         st.caption(f'Resolution: {W}×{H}px')
 
+        # Prepare CPU/RAM baseline
+        process = psutil.Process(os.getpid())
+        ram_before_mb = process.memory_info().rss / (1024 ** 2)
+        psutil.cpu_percent(interval=None)  # Prime CPU percent
+
         # Run inference
         with st.spinner('Running inference...'):
+            overall_start_time = time.time()
             segmentation_results = {}
             for name, model in seg_models.items():
+                m_start = time.time()
                 prob_map, binary_map = run_segmentation_inference(model, pil_image, threshold)
                 overlay = make_overlay(pil_image, prob_map, opacity, threshold)
+                m_time = time.time() - m_start
                 segmentation_results[name] = {
                     'prob_map': prob_map,
                     'binary_map': binary_map,
                     'overlay': overlay,
-                    'flagged_pct': float(binary_map.mean()) * 100
+                    'flagged_pct': float(binary_map.mean()) * 100,
+                    'inference_time': m_time
                 }
 
             if classifier_models:
                 classification_results = run_classification_inference(classifier_models, pil_image)
             else:
                 classification_results = {}
+            
+            overall_time = time.time() - overall_start_time
+
+        # Gather System Info
+        ram_after_mb = process.memory_info().rss / (1024 ** 2)
+        cpu_used = psutil.cpu_percent(interval=None)
+        
+        system_stats = {
+            "overall_time": overall_time,
+            "cpu_percent": cpu_used,
+            "ram_used_mb": ram_after_mb,
+            "ram_jump_mb": ram_after_mb - ram_before_mb,
+            "gpu_vram_used_gb": 0.0,
+            "gpu_vram_total_gb": 0.0
+        }
+        if torch.cuda.is_available():
+            try:
+                system_stats["gpu_vram_used_gb"] = torch.cuda.memory_allocated(DEVICE) / (1024 ** 3)
+                system_stats["gpu_vram_total_gb"] = torch.cuda.get_device_properties(DEVICE).total_memory / (1024 ** 3)
+            except:
+                pass
 
         # --- FINAL HEURISTIC DECISION ---
         mean_flagged_pct = 0.0
@@ -532,9 +567,12 @@ for uploaded_file in uploaded_files:
                         <div class="{conf_class}" style="font-size: 1.3rem; margin-bottom: 0.5rem;">
                             {conf_pct:.1f}%
                         </div>
-                        <div style="font-size: 0.85rem; color: #666;">
+                        <div style="font-size: 0.85rem; color: #666; margin-bottom: 0.5rem;">
                             {list(result['probabilities'].keys())[0]}: {result['probabilities'][list(result['probabilities'].keys())[0]]:.1f}%<br/>
                             {list(result['probabilities'].keys())[1]}: {result['probabilities'][list(result['probabilities'].keys())[1]]:.1f}%
+                        </div>
+                        <div style="font-size: 0.85rem; color: #444; border-top: 1px solid #ddd; padding-top: 0.4rem; font-weight: 500;">
+                            ⏱️ Inference Time: {result.get('inference_time', 0.0):.3f}s
                         </div>
                     </div>
                     """, unsafe_allow_html=True)
@@ -619,11 +657,28 @@ for uploaded_file in uploaded_files:
                 c2.metric('Mean Probability', f'{mean_prob:.3f}', help='Average inpainting probability')
                 c3.metric('Peak Probability', f'{max_prob:.3f}', help='Maximum inpainting probability')
                 c4.metric('Min Probability', f'{min_prob:.3f}', help='Minimum inpainting probability')
-                c5.metric('High Confidence (>75%)', f'{high_conf:.1f}%', help='% of pixels with >75% inpainting confidence')
+                c5.metric('Inference Time', f"{results.get('inference_time', 0.0):.3f}s", help='Time taken for this model to process')
                 st.write("")
+        
+        # --- SYSTEM STATS ---
+        st.markdown('#### 🖥️ System Performance')
+        
+        sys_c1, sys_c2, sys_c3, sys_c4 = st.columns(4)
+        sys_c1.metric("Total Execution Time", f"{system_stats['overall_time']:.2f} s")
+        sys_c2.metric("CPU Util During Inference", f"{system_stats['cpu_percent']}%")
+        
+        ram_delta_str = f"+{system_stats['ram_jump_mb']:.1f} MB (Inference)" if system_stats['ram_jump_mb'] > 0 else f"{system_stats['ram_jump_mb']:.1f} MB (Inference)"
+        sys_c3.metric("App RAM Usage", f"{system_stats['ram_used_mb']:.1f} MB", delta=ram_delta_str, delta_color="inverse")
+        
+        if torch.cuda.is_available():
+            sys_c4.metric("GPU VRAM Used", f"{system_stats['gpu_vram_used_gb']:.1f} / {system_stats['gpu_vram_total_gb']:.1f} GB")
+        else:
+            sys_c4.metric("GPU VRAM", "N/A (CPU Mode)")
 
     except Exception as e:
+        import traceback
         st.error(f'❌ Error processing image: {e}')
+        st.error(traceback.format_exc())
         continue
 
 # =============================================================================
