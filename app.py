@@ -354,19 +354,19 @@ with st.sidebar:
 
     heuristic_threshold = st.slider(
         'Heuristic Threshold (%)',
-        min_value=0.0, max_value=20.0, value=2.0, step=0.5,
+        min_value=0.0, max_value=50.0, value=10.0, step=0.5,
         help='If classifiers conflict, predict FAKE if average segmentation flags > this % of pixels.'
     )
 
     threshold = st.slider(
         'Segmentation threshold',
-        min_value=0.10, max_value=0.90, value=0.50, step=0.05,
+        min_value=0.10, max_value=0.90, value=0.70, step=0.05,
         help='Pixels above this probability are flagged as inpainted.'
     )
 
     opacity = st.slider(
         'Heatmap opacity',
-        min_value=0.20, max_value=1.00, value=0.65, step=0.05,
+        min_value=0.20, max_value=1.00, value=0.6, step=0.05,
         help='Heatmap blend intensity.'
     )
 
