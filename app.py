@@ -1,5 +1,5 @@
 # =============================================================================
-# AI Inpainting Detection & Classification — Streamlit Demo (Enhanced)
+# AuthentiLens — Streamlit Demo (Enhanced)
 # =============================================================================
 # Combines segmentation (DeepLabV3Plus) and classification (ResNet + EfficientNet)
 # - Segmentation: Detects AI-inpainted regions
@@ -32,15 +32,16 @@ from datetime import datetime
 
 # Segmentation
 DEEPLAB_CHECKPOINT = './checkpoints_deeplab/best_model.pth'
-DEEPLAB_IMAGE_SIZE = 512
+UNET_CHECKPOINT = './checkpoints_unet/best_model.pth'
+SEGMENTATION_IMAGE_SIZE = 512
 
 # Classification
-RESNET_CHECKPOINT = './checkpoints_resnet/best_model.pth'
-EFFICIENTNET_CHECKPOINT = './checkpoints_efficientnet/best_model.pth'
+RESNET_CHECKPOINT = './checkpoints_resnet_sd_2.5e-5/best_model.pth'
+EFFICIENTNET_CHECKPOINT = './checkpoints_efficientnet_sd_2.5e-5/best_model.pth'
 CLASSIFIER_IMAGE_SIZE = 224
 
 # Class names for classification
-CLASS_NAMES = {0: "Class 0 (e.g., FAKE)", 1: "Class 1 (e.g., REAL)"}
+CLASS_NAMES = {0: "FAKE", 1: "REAL"}
 
 DEVICE = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
@@ -61,48 +62,83 @@ if 'results_history' not in st.session_state:
 # SEGMENTATION MODEL LOADING
 # =============================================================================
 
-@st.cache_resource(show_spinner='Loading segmentation model...')
-def load_deeplab_model(ckpt_path: str):
-    """Load DeepLabV3Plus for inpainting detection."""
-    if not os.path.exists(ckpt_path):
-        raise FileNotFoundError(f"Checkpoint not found: {ckpt_path}")
+@st.cache_resource(show_spinner='Loading segmentation models...')
+def load_all_segmentation_models():
+    """Load both DeepLabV3Plus and UNet for inpainting detection."""
+    models = {}
     
-    model = smp.DeepLabV3Plus(
-        encoder_name='resnet50',
-        encoder_weights=None,
-        in_channels=3,
-        classes=1,
-        activation=None,
-    )
-    model.decoder.block2 = nn.Sequential(
-        model.decoder.block2,
-        nn.Dropout2d(p=0.3),
-    )
+    # DeepLabV3Plus
+    if os.path.exists(DEEPLAB_CHECKPOINT):
+        deeplab = smp.DeepLabV3Plus(
+            encoder_name='resnet50',
+            encoder_weights=None,
+            in_channels=3,
+            classes=1,
+            activation=None,
+        )
+        deeplab.decoder.block2 = nn.Sequential(
+            deeplab.decoder.block2,
+            nn.Dropout2d(p=0.3),
+        )
 
-    ckpt = torch.load(ckpt_path, map_location=DEVICE)
-    state = ckpt.get('model_state_dict', ckpt)
+        ckpt = torch.load(DEEPLAB_CHECKPOINT, map_location=DEVICE)
+        state = ckpt.get('model_state_dict', ckpt)
 
-    # Handle buggy checkpoint variant
-    is_buggy = any(k.startswith('decoder.block.') for k in state.keys())
-    if is_buggy:
-        new_state = {}
-        for k, v in state.items():
-            if k.startswith('decoder.block.1.'):
-                suffix = k[len('decoder.block.1.'):]
-                new_key = f'decoder.block2.0.{suffix}'
-                new_state[new_key] = v
-            elif k.startswith('decoder.block.'):
-                pass
-            elif k.startswith('decoder.block2.'):
-                pass
-            else:
-                new_state[k] = v
-        state = new_state
+        # Handle buggy checkpoint variant
+        is_buggy = any(k.startswith('decoder.block.') for k in state.keys())
+        if is_buggy:
+            new_state = {}
+            for k, v in state.items():
+                if k.startswith('decoder.block.1.'):
+                    suffix = k[len('decoder.block.1.'):]
+                    new_key = f'decoder.block2.0.{suffix}'
+                    new_state[new_key] = v
+                elif k.startswith('decoder.block.'):
+                    pass
+                elif k.startswith('decoder.block2.'):
+                    pass
+                else:
+                    new_state[k] = v
+            state = new_state
 
-    model.load_state_dict(state, strict=True)
-    model.to(DEVICE)
-    model.eval()
-    return model
+        deeplab.load_state_dict(state, strict=True)
+        deeplab.to(DEVICE)
+        deeplab.eval()
+        models['DeepLabV3Plus'] = deeplab
+    else:
+        st.warning(f"DeepLabV3Plus checkpoint not found: {DEEPLAB_CHECKPOINT}")
+
+    # UNet
+    if os.path.exists(UNET_CHECKPOINT):
+        unet = smp.Unet(
+            encoder_name='resnet50',
+            encoder_weights=None,
+            in_channels=3,
+            classes=1,
+            activation=None,
+            decoder_channels=(256, 128, 64, 32, 16),
+            decoder_use_batchnorm=True,
+        )
+        
+        dropout_p = 0.3
+        for i, block in enumerate(unet.decoder.blocks):
+            n = len(unet.decoder.blocks)
+            scaled = dropout_p * (0.4 + 0.6 * i / max(n - 1, 1))
+            block.conv2 = nn.Sequential(
+                block.conv2,
+                nn.Dropout2d(p=scaled),
+            )
+            
+        ckpt = torch.load(UNET_CHECKPOINT, map_location=DEVICE)
+        state = ckpt.get('model_state_dict', ckpt)
+        unet.load_state_dict(state, strict=True)
+        unet.to(DEVICE)
+        unet.eval()
+        models['UNet'] = unet
+    else:
+        st.warning(f"UNet checkpoint not found: {UNET_CHECKPOINT}")
+
+    return models
 
 
 # =============================================================================
@@ -157,7 +193,7 @@ def run_segmentation_inference(model, pil_image: Image.Image, threshold: float) 
     """
     orig_w, orig_h = pil_image.size
 
-    img_r = pil_image.resize((DEEPLAB_IMAGE_SIZE, DEEPLAB_IMAGE_SIZE), Image.BILINEAR)
+    img_r = pil_image.resize((SEGMENTATION_IMAGE_SIZE, SEGMENTATION_IMAGE_SIZE), Image.BILINEAR)
     t = TF.to_tensor(img_r)
     t = TF.normalize(t, mean=MEAN, std=STD).unsqueeze(0).to(DEVICE)
 
@@ -270,7 +306,7 @@ def numpy_to_uint8_image(arr: np.ndarray) -> Image.Image:
 # =============================================================================
 
 st.set_page_config(
-    page_title='Inpainting Detection & Classification',
+    page_title='AuthentiLens',
     page_icon='🤖',
     layout='wide',
     initial_sidebar_state='expanded'
@@ -299,7 +335,7 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-st.title('🤖 Inpainting Detection & Classification')
+st.title('🤖 AuthentiLens')
 st.markdown(
     '**Analyze images** using segmentation (detect inpainted regions) and classification (overall category prediction).'
 )
@@ -310,6 +346,12 @@ st.markdown(
 
 with st.sidebar:
     st.header('⚙️ Settings')
+
+    heuristic_threshold = st.slider(
+        'Heuristic Threshold (%)',
+        min_value=0.0, max_value=20.0, value=2.0, step=0.5,
+        help='If classifiers conflict, predict FAKE if average segmentation flags > this % of pixels.'
+    )
 
     threshold = st.slider(
         'Segmentation threshold',
@@ -348,10 +390,13 @@ with st.sidebar:
 # =============================================================================
 
 try:
-    deeplab_model = load_deeplab_model(DEEPLAB_CHECKPOINT)
-    st.sidebar.success('✓ Segmentation model loaded')
+    seg_models = load_all_segmentation_models()
+    if seg_models:
+        st.sidebar.success(f'✓ Segmentation models loaded ({len(seg_models)})')
+    else:
+        st.sidebar.warning('⚠️ No segmentation models available')
 except Exception as e:
-    st.error(f'❌ Failed to load segmentation model: {e}')
+    st.error(f'❌ Failed to load segmentation models: {e}')
     st.stop()
 
 try:
@@ -394,23 +439,72 @@ for uploaded_file in uploaded_files:
 
         # Run inference
         with st.spinner('Running inference...'):
-            prob_map, binary_map = run_segmentation_inference(deeplab_model, pil_image, threshold)
-            overlay = make_overlay(pil_image, prob_map, opacity, threshold)
+            segmentation_results = {}
+            for name, model in seg_models.items():
+                prob_map, binary_map = run_segmentation_inference(model, pil_image, threshold)
+                overlay = make_overlay(pil_image, prob_map, opacity, threshold)
+                segmentation_results[name] = {
+                    'prob_map': prob_map,
+                    'binary_map': binary_map,
+                    'overlay': overlay,
+                    'flagged_pct': float(binary_map.mean()) * 100
+                }
 
             if classifier_models:
                 classification_results = run_classification_inference(classifier_models, pil_image)
             else:
                 classification_results = {}
 
+        # --- FINAL HEURISTIC DECISION ---
+        mean_flagged_pct = 0.0
+        if segmentation_results:
+            mean_flagged_pct = sum(res['flagged_pct'] for res in segmentation_results.values()) / len(segmentation_results)
+            
+        final_prediction = ""
+        heuristic_reason = ""
+        
+        if classification_results and 'ResNet-50' in classification_results and 'EfficientNet-B0' in classification_results:
+            resnet_class = classification_results['ResNet-50']['class']
+            effnet_class = classification_results['EfficientNet-B0']['class']
+            
+            if resnet_class == effnet_class:
+                final_prediction = resnet_class
+                heuristic_reason = f"Both classifiers agree on {final_prediction}."
+            else:
+                # Conflict resolution via segmentation heuristic
+                if mean_flagged_pct > heuristic_threshold:
+                    final_prediction = "FAKE"
+                    heuristic_reason = f"Classifiers conflicted. Segmentation tools averged {mean_flagged_pct:.2f}% flagged pixels (> {heuristic_threshold}%), therefore FAKE."
+                else:
+                    final_prediction = "REAL"
+                    heuristic_reason = f"Classifiers conflicted. Segmentation tools averaged {mean_flagged_pct:.2f}% flagged pixels (<= {heuristic_threshold}%), therefore REAL."
+        
         # Store results in session history
         result_entry = {
             'filename': uploaded_file.name,
             'timestamp': datetime.now().isoformat(),
             'threshold': threshold,
-            'flagged_pct': float((binary_map.mean()) * 100),
+            'flagged_pct': mean_flagged_pct,
             'classification_results': classification_results,
+            'final_prediction': final_prediction,
+            'heuristic_reason': heuristic_reason
         }
         st.session_state.results_history.append(result_entry)
+        
+        # --- DISPLAY FINAL DECISION ---
+        if final_prediction:
+            st.markdown('### 🎯 Final Prediction (Heuristic)')
+            decision_color = "#ff4b4b" if final_prediction == "FAKE" else "#00d084"
+            st.markdown(f"""
+            <div style="background: #f0f2f6; padding: 1.5rem; border-radius: 10px; border-left: 6px solid {decision_color}; margin-bottom: 1rem;">
+                <div style="font-size: 2rem; font-weight: bold; color: {decision_color}; margin-bottom: 0.5rem;">
+                    {final_prediction}
+                </div>
+                <div style="font-size: 1.1rem; color: #444;">
+                    {heuristic_reason}
+                </div>
+            </div>
+            """, unsafe_allow_html=True)
 
         # --- CLASSIFICATION RESULTS ---
         if classification_results:
@@ -448,84 +542,85 @@ for uploaded_file in uploaded_files:
         # --- SEGMENTATION VISUALIZATION ---
         st.markdown('### 🔍 Segmentation Analysis')
 
-        n_cols = 2 + int(show_seg_raw) + int(show_seg_binary)
-        cols = st.columns(n_cols)
+        st.image(pil_image, caption='Original Image')
+        st.write("")
 
-        col_idx = 0
-        with cols[col_idx]:
-            st.image(pil_image, caption='Original Image', use_column_width=True)
-        col_idx += 1
+        for model_name, results in segmentation_results.items():
+            st.markdown(f"**{model_name} Results:**")
+            
+            n_cols = 1 + int(show_seg_raw) + int(show_seg_binary)
+            cols = st.columns(n_cols)
 
-        with cols[col_idx]:
-            st.image(overlay, caption='Inpainting Heatmap', use_column_width=True)
-        col_idx += 1
-
-        if show_seg_raw:
-            prob_img = get_prob_map_image(prob_map)
+            col_idx = 0
             with cols[col_idx]:
-                st.image(prob_img, caption='Probability Map', use_column_width=True)
+                st.image(results['overlay'], caption=f'{model_name} Heatmap', use_container_width=True)
             col_idx += 1
 
-        if show_seg_binary:
-            binary_rgb = (binary_map * 255).astype(np.uint8)
-            with cols[col_idx]:
-                st.image(binary_rgb, caption=f'Binary Mask (t={threshold})', use_column_width=True)
+            if show_seg_raw:
+                with cols[col_idx]:
+                    st.image(get_prob_map_image(results['prob_map']), caption=f'{model_name} Probability', use_container_width=True)
+                col_idx += 1
+
+            if show_seg_binary:
+                with cols[col_idx]:
+                    st.image((results['binary_map'] * 255).astype(np.uint8), caption=f'{model_name} Mask (t={threshold})', use_container_width=True)
+
+            st.divider()
 
         # --- DOWNLOAD OPTIONS ---
         if show_download_options:
             st.markdown('#### 💾 Download Results')
             
-            dcols = st.columns(3)
-            
-            with dcols[0]:
-                overlay_bytes = image_to_bytes(overlay)
-                st.download_button(
-                    label='📥 Heatmap',
-                    data=overlay_bytes,
-                    file_name=f'{uploaded_file.name.rsplit(".", 1)[0]}_heatmap.png',
-                    mime='image/png'
-                )
-            
-            with dcols[1]:
-                binary_img = Image.fromarray((binary_map * 255).astype(np.uint8))
-                binary_bytes = image_to_bytes(binary_img)
-                st.download_button(
-                    label='📥 Mask',
-                    data=binary_bytes,
-                    file_name=f'{uploaded_file.name.rsplit(".", 1)[0]}_mask.png',
-                    mime='image/png'
-                )
-            
-            with dcols[2]:
-                prob_img_bytes = image_to_bytes(get_prob_map_image(prob_map))
-                st.download_button(
-                    label='📥 Probability Map',
-                    data=prob_img_bytes,
-                    file_name=f'{uploaded_file.name.rsplit(".", 1)[0]}_prob.png',
-                    mime='image/png'
-                )
+            for model_name, results in segmentation_results.items():
+                st.markdown(f"**{model_name}:**")
+                dcols = st.columns(3)
+                
+                with dcols[0]:
+                    overlay_bytes = image_to_bytes(results['overlay'])
+                    st.download_button(
+                        label=f'📥 {model_name} Heatmap',
+                        data=overlay_bytes,
+                        file_name=f'{uploaded_file.name.rsplit(".", 1)[0]}_{model_name}_heatmap.png',
+                        mime='image/png'
+                    )
+                
+                with dcols[1]:
+                    binary_img = Image.fromarray((results['binary_map'] * 255).astype(np.uint8))
+                    binary_bytes = image_to_bytes(binary_img)
+                    st.download_button(
+                        label=f'📥 {model_name} Mask',
+                        data=binary_bytes,
+                        file_name=f'{uploaded_file.name.rsplit(".", 1)[0]}_{model_name}_mask.png',
+                        mime='image/png'
+                    )
+                
+                with dcols[2]:
+                    prob_img_bytes = image_to_bytes(get_prob_map_image(results['prob_map']))
+                    st.download_button(
+                        label=f'📥 {model_name} Prob Map',
+                        data=prob_img_bytes,
+                        file_name=f'{uploaded_file.name.rsplit(".", 1)[0]}_{model_name}_prob.png',
+                        mime='image/png'
+                    )
 
         # --- STATISTICS ---
         if show_seg_stats:
             st.markdown('#### 📊 Segmentation Statistics')
 
-            flagged_pct = float(binary_map.mean()) * 100
-            mean_prob = float(prob_map.mean())
-            max_prob = float(prob_map.max())
-            min_prob = float(prob_map.min())
-            high_conf = float((prob_map > 0.75).mean()) * 100
+            for model_name, results in segmentation_results.items():
+                st.markdown(f"**{model_name}**")
+                mean_prob = float(results['prob_map'].mean())
+                max_prob = float(results['prob_map'].max())
+                min_prob = float(results['prob_map'].min())
+                high_conf = float((results['prob_map'] > 0.75).mean()) * 100
 
-            c1, c2, c3, c4, c5 = st.columns(5)
-            c1.metric('Flagged Pixels', f'{flagged_pct:.1f}%',
-                      help='% of pixels classified as inpainted')
-            c2.metric('Mean Probability', f'{mean_prob:.3f}',
-                      help='Average inpainting probability')
-            c3.metric('Peak Probability', f'{max_prob:.3f}',
-                      help='Maximum inpainting probability')
-            c4.metric('Min Probability', f'{min_prob:.3f}',
-                      help='Minimum inpainting probability')
-            c5.metric('High Confidence (>75%)', f'{high_conf:.1f}%',
-                      help='% of pixels with >75% inpainting confidence')
+                c1, c2, c3, c4, c5 = st.columns(5)
+                c1.metric('Flagged Pixels', f"{results['flagged_pct']:.1f}%", help='% of pixels classified as inpainted')
+                c2.metric('Mean Probability', f'{mean_prob:.3f}', help='Average inpainting probability')
+                c3.metric('Peak Probability', f'{max_prob:.3f}', help='Maximum inpainting probability')
+                c4.metric('Min Probability', f'{min_prob:.3f}', help='Minimum inpainting probability')
+                c5.metric('High Confidence (>75%)', f'{high_conf:.1f}%', help='% of pixels with >75% inpainting confidence')
+                st.write("")
 
     except Exception as e:
         st.error(f'❌ Error processing image: {e}')
@@ -543,6 +638,7 @@ if len(st.session_state.results_history) > 1:
     for result in st.session_state.results_history:
         row = {
             'Filename': result['filename'],
+            'Final Prediction': result.get('final_prediction', 'N/A'),
             'Flagged %': f"{result['flagged_pct']:.1f}%",
             'Timestamp': result['timestamp'][:19],
         }
@@ -565,6 +661,6 @@ if len(st.session_state.results_history) > 1:
 st.markdown('---')
 st.markdown(
     '<div style="text-align: center; color: #999; font-size: 0.85rem;">'
-    'Inpainting Detection & Classification | Powered by Streamlit | Device: ' + str(DEVICE) + '</div>',
+    'AuthentiLens | Powered by Streamlit | Device: ' + str(DEVICE) + '</div>',
     unsafe_allow_html=True
 )

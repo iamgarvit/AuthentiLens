@@ -28,3 +28,4 @@ checkpoints_efficientnet_sd_2.5e-5/
 sd2_training_package.tar.gz
 patches-fake/
 patches-real/
+checkpoints_unet/
