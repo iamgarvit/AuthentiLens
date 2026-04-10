@@ -1,0 +1,30 @@
+{
+    "ResNet_DeepLabV3Plus": {
+        "total_images": 1029,
+        "classifier_fake_TPR": 0.5898931000971818,
+        "segmentation_mIoU": 0.1675761231830457,
+        "segmentation_pixel_accuracy": 0.6176137636887205,
+        "combined_pipeline_TPR": 0.9484936831875608
+    },
+    "ResNet_UNet": {
+        "total_images": 1029,
+        "classifier_fake_TPR": 0.5898931000971818,
+        "segmentation_mIoU": 0.1728320877181176,
+        "segmentation_pixel_accuracy": 0.6329514936293296,
+        "combined_pipeline_TPR": 0.8658892128279884
+    },
+    "EfficientNet_DeepLabV3Plus": {
+        "total_images": 1029,
+        "classifier_fake_TPR": 0.7142857142857143,
+        "segmentation_mIoU": 0.1675761231830457,
+        "segmentation_pixel_accuracy": 0.6176137636887205,
+        "combined_pipeline_TPR": 0.966958211856171
+    },
+    "EfficientNet_UNet": {
+        "total_images": 1029,
+        "classifier_fake_TPR": 0.7142857142857143,
+        "segmentation_mIoU": 0.1728320877181176,
+        "segmentation_pixel_accuracy": 0.6329514936293296,
+        "combined_pipeline_TPR": 0.9173955296404276
+    }
+}
