@@ -264,21 +264,47 @@ def run_classification_inference(models: dict, pil_image: Image.Image) -> dict:
 # =============================================================================
 
 def make_overlay(pil_image: Image.Image, prob_map: np.ndarray, opacity: float, threshold: float) -> Image.Image:
-    """Composite probability heatmap over original image."""
+    """Composite a realistic probability heatmap over original image."""
+    from scipy.ndimage import gaussian_filter
+
+    # --- 1. Smooth the raw probability map ---
+    smoothed = gaussian_filter(prob_map.astype(np.float32), sigma=6)
+
+    # --- 2. Normalize only the above-threshold region ---
+    above = smoothed[smoothed >= threshold]
+    if above.size > 0:
+        p_low, p_high = np.percentile(above, 2), np.percentile(above, 98)
+    else:
+        p_low, p_high = threshold, 1.0
+
+    normalized = np.clip((smoothed - p_low) / (p_high - p_low + 1e-8), 0, 1)
+
+    # --- 3. Realistic heatmap colormap (deep blue → cyan → green → yellow → red) ---
     cmap = mcolors.LinearSegmentedColormap.from_list(
-        'inpaint_heat',
-        [(0.00, '#00c800'), (0.50, '#aaff00'), (1.00, '#ffff00')]
+        'realistic_heat', [
+            (0.00, '#0000ff'),  # deep blue  - very low
+            (0.25, '#00cfff'),  # cyan        - low-mid
+            (0.50, '#00ff88'),  # green       - mid
+            (0.75, '#ffdd00'),  # yellow      - high
+            (1.00, '#ff2200'),  # hot red     - very high
+        ]
     )
 
-    rgba = cmap(prob_map)
+    rgba = cmap(normalized).astype(np.float32)  # (H, W, 4)
 
-    alpha_mask = np.where(
-        prob_map >= threshold,
-        opacity * prob_map,
-        0.0
-    ).astype(np.float32)
-    rgba[:, :, 3] = alpha_mask
+    # --- 4. Soft alpha: smooth sigmoid falloff around threshold ---
+    # Instead of a hard cutoff, ramp smoothly
+    sharpness = 12.0  # higher = sharper edge at threshold
+    soft_alpha = 1.0 / (1.0 + np.exp(-sharpness * (smoothed - threshold)))
 
+    # Weight alpha by probability magnitude so bright spots = more opaque
+    alpha = soft_alpha * normalized * opacity
+    alpha = gaussian_filter(alpha, sigma=3)  # feather the alpha edges
+    alpha = np.clip(alpha, 0.0, 1.0).astype(np.float32)
+
+    rgba[:, :, 3] = alpha
+
+    # --- 5. Composite ---
     heat_rgba = Image.fromarray((rgba * 255).astype(np.uint8), mode='RGBA')
     base = pil_image.convert('RGBA')
     composite = Image.alpha_composite(base, heat_rgba)
@@ -286,11 +312,25 @@ def make_overlay(pil_image: Image.Image, prob_map: np.ndarray, opacity: float, t
 
 
 def get_prob_map_image(prob_map: np.ndarray) -> Image.Image:
-    """Convert probability map to colored image."""
+    """Convert probability map to realistic colored heatmap image."""
+    from scipy.ndimage import gaussian_filter
+
+    smoothed = gaussian_filter(prob_map.astype(np.float32), sigma=6)
+
+    p_low, p_high = np.percentile(smoothed, 2), np.percentile(smoothed, 98)
+    normalized = np.clip((smoothed - p_low) / (p_high - p_low + 1e-8), 0, 1)
+
     cmap = mcolors.LinearSegmentedColormap.from_list(
-        'inpaint_heat', ['#00c800', '#aaff00', '#ffff00']
+        'realistic_heat', [
+            (0.00, '#0000ff'),
+            (0.25, '#00cfff'),
+            (0.50, '#00ff88'),
+            (0.75, '#ffdd00'),
+            (1.00, '#ff2200'),
+        ]
     )
-    prob_rgb = (cmap(prob_map)[:, :, :3] * 255).astype(np.uint8)
+
+    prob_rgb = (cmap(normalized)[:, :, :3] * 255).astype(np.uint8)
     return Image.fromarray(prob_rgb)
 
 
