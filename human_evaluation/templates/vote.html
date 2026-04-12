@@ -1,0 +1,160 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Human Evaluation — {{ dataset_label }}</title>
+    <link rel="stylesheet" href="/static/style.css">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>{{ dataset_label }}</h1>
+            <p class="subtitle">Is this image <strong>real</strong> or <strong>AI-manipulated (fake)</strong>?</p>
+        </div>
+
+        <p class="eval-counter" id="eval-counter">You've evaluated <strong>{{ voted_count }}</strong> images</p>
+
+        <div class="image-container" id="image-container">
+            <div class="spinner" id="spinner">
+                <div class="spinner-ring"></div>
+            </div>
+            <img id="eval-image" alt="Image to evaluate" style="display:none;">
+        </div>
+
+        <div class="vote-buttons" id="vote-buttons" style="display:none;">
+            <button class="btn btn-real" id="btn-real" onclick="castVote('REAL')">
+                <span class="btn-icon">✓</span>
+                REAL
+            </button>
+            <button class="btn btn-fake" id="btn-fake" onclick="castVote('FAKE')">
+                <span class="btn-icon">✗</span>
+                FAKE
+            </button>
+        </div>
+
+        <div class="feedback" id="feedback" style="display:none;">
+            <p id="feedback-text"></p>
+        </div>
+
+        <div class="done-message" id="done-message" style="display:none;">
+            <h2>🎉 Thank you!</h2>
+            <p>You have evaluated all available images.</p>
+            <p>Feel free to continue evaluating!</p>
+            <button class="btn btn-continue" onclick="loadNextImage()">Continue Evaluating</button>
+        </div>
+    </div>
+
+    <script>
+        const DATASET = "{{ dataset }}";
+        let currentUUID = null;
+        let isVoting = false;
+
+        async function loadNextImage() {
+            document.getElementById("spinner").style.display = "flex";
+            document.getElementById("eval-image").style.display = "none";
+            document.getElementById("vote-buttons").style.display = "none";
+            document.getElementById("feedback").style.display = "none";
+            document.getElementById("done-message").style.display = "none";
+
+            try {
+                const resp = await fetch(`/${DATASET}/next-image`);
+                if (!resp.ok) {
+                    if (resp.status === 404) {
+                        document.getElementById("spinner").style.display = "none";
+                        document.getElementById("done-message").style.display = "block";
+                        return;
+                    }
+                    throw new Error("Failed to get next image");
+                }
+
+                const data = await resp.json();
+                currentUUID = data.uuid;
+
+                // Update user's personal counter
+                document.getElementById("eval-counter").innerHTML =
+                    `You've evaluated <strong>${data.voted_count}</strong> images`;
+
+                // Load image
+                const img = document.getElementById("eval-image");
+                img.onload = function() {
+                    document.getElementById("spinner").style.display = "none";
+                    img.style.display = "block";
+                    document.getElementById("vote-buttons").style.display = "flex";
+                    // Re-enable buttons
+                    document.getElementById("btn-real").disabled = false;
+                    document.getElementById("btn-fake").disabled = false;
+                    isVoting = false;
+                };
+                img.onerror = function() {
+                    document.getElementById("spinner").style.display = "none";
+                    document.getElementById("feedback").style.display = "block";
+                    document.getElementById("feedback-text").textContent = "Error loading image. Trying next...";
+                    setTimeout(loadNextImage, 1500);
+                };
+                // Cache-bust to prevent browser caching issues
+                img.src = data.image_url + "?t=" + Date.now();
+
+            } catch (err) {
+                console.error(err);
+                document.getElementById("spinner").style.display = "none";
+                document.getElementById("feedback").style.display = "block";
+                document.getElementById("feedback-text").textContent = "Connection error. Retrying...";
+                setTimeout(loadNextImage, 2000);
+            }
+        }
+
+        async function castVote(vote) {
+            if (isVoting || !currentUUID) return;
+            isVoting = true;
+
+            // Disable buttons immediately
+            document.getElementById("btn-real").disabled = true;
+            document.getElementById("btn-fake").disabled = true;
+
+            // Show feedback
+            const feedback = document.getElementById("feedback");
+            const feedbackText = document.getElementById("feedback-text");
+            feedback.style.display = "block";
+            feedbackText.textContent = "Vote recorded! Loading next image...";
+            feedback.className = "feedback feedback-success";
+
+            try {
+                const resp = await fetch(`/${DATASET}/vote`, {
+                    method: "POST",
+                    headers: {"Content-Type": "application/json"},
+                    body: JSON.stringify({uuid: currentUUID, vote: vote}),
+                });
+
+                if (!resp.ok) {
+                    throw new Error("Vote failed");
+                }
+
+                // Brief delay then load next
+                setTimeout(loadNextImage, 600);
+
+            } catch (err) {
+                console.error(err);
+                feedbackText.textContent = "Error recording vote. Please try again.";
+                feedback.className = "feedback feedback-error";
+                document.getElementById("btn-real").disabled = false;
+                document.getElementById("btn-fake").disabled = false;
+                isVoting = false;
+            }
+        }
+
+        // Keyboard shortcuts
+        document.addEventListener("keydown", function(e) {
+            if (e.key === "r" || e.key === "R" || e.key === "1") {
+                castVote("REAL");
+            } else if (e.key === "f" || e.key === "F" || e.key === "2") {
+                castVote("FAKE");
+            }
+        });
+
+        // Start
+        loadNextImage();
+    </script>
+</body>
+</html>

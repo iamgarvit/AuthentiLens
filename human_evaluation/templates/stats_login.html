@@ -1,0 +1,22 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Stats — Login</title>
+    <link rel="stylesheet" href="/static/style.css">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🔒 Stats Access</h1>
+            <p class="subtitle">Enter the admin password to view evaluation stats</p>
+        </div>
+        <form class="login-form" method="GET" action="/{{ dataset }}/stats">
+            <input type="password" name="pwd" placeholder="Password" class="input-field" autofocus>
+            <button type="submit" class="btn btn-real">View Stats</button>
+        </form>
+    </div>
+</body>
+</html>

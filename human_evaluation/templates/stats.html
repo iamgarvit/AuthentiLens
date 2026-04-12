@@ -1,0 +1,147 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Stats — {{ dataset_label }}</title>
+    <link rel="stylesheet" href="/static/style.css">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+</head>
+<body>
+    <div class="container stats-container">
+        <div class="header">
+            <h1>📊 Evaluation Stats</h1>
+            <p class="subtitle">{{ dataset_label }}</p>
+        </div>
+
+        <!-- Overview cards -->
+        <div class="stats-grid">
+            <div class="stat-card">
+                <div class="stat-value">{{ total_images }}</div>
+                <div class="stat-label">Total Images</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-value">{{ total_votes }}</div>
+                <div class="stat-label">Total Votes</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-value">{{ images_with_votes }}</div>
+                <div class="stat-label">Images Evaluated</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-value">{{ images_without_votes }}</div>
+                <div class="stat-label">Remaining</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-value">{{ unique_sessions }}</div>
+                <div class="stat-label">Unique Voters</div>
+            </div>
+            <div class="stat-card accent">
+                <div class="stat-value">{{ overall_accuracy }}%</div>
+                <div class="stat-label">Human Accuracy</div>
+            </div>
+        </div>
+
+        <!-- Coverage progress -->
+        <div class="section">
+            <h2>Coverage</h2>
+            <div class="progress-bar-container large">
+                <div class="progress-bar" style="width: {{ (images_with_votes / total_images * 100) if total_images > 0 else 0 }}%"></div>
+            </div>
+            <p class="progress-text">{{ images_with_votes }} / {{ total_images }} images have at least one vote</p>
+        </div>
+
+        <!-- Per-label stats -->
+        <div class="section">
+            <h2>Per-Label Breakdown</h2>
+            <table class="stats-table">
+                <thead>
+                    <tr>
+                        <th>Label</th>
+                        <th>Images</th>
+                        <th>Total Votes</th>
+                        <th>Correct Votes</th>
+                        <th>Incorrect Votes</th>
+                        <th>Accuracy</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for label, s in label_stats.items() %}
+                    <tr>
+                        <td><span class="label label-{{ label|lower }}">{{ label }}</span></td>
+                        <td>{{ s.total }}</td>
+                        <td>{{ s.votes }}</td>
+                        <td>{{ s.correct }}</td>
+                        <td>{{ s.incorrect }}</td>
+                        <td>{{ "%.1f"|format(s.correct / s.votes * 100) if s.votes > 0 else "—" }}%</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+
+        <!-- Per-category stats -->
+        <div class="section">
+            <h2>Per-Category Breakdown</h2>
+            <table class="stats-table">
+                <thead>
+                    <tr>
+                        <th>Category</th>
+                        <th>Images</th>
+                        <th>Evaluated</th>
+                        <th>Voted REAL</th>
+                        <th>Voted FAKE</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for cat, s in category_stats.items()|sort %}
+                    <tr>
+                        <td>{{ cat }}</td>
+                        <td>{{ s.total_images }}</td>
+                        <td>{{ s.images_voted }}</td>
+                        <td>{{ s.total_real_votes }}</td>
+                        <td>{{ s.total_fake_votes }}</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+
+        <!-- Least-voted images -->
+        <div class="section">
+            <h2>Least-Voted Images (top {{ per_image_data|length }} of {{ per_image_total }})</h2>
+            <table class="stats-table small">
+                <thead>
+                    <tr>
+                        <th>ID</th>
+                        <th>Category</th>
+                        <th>Ground Truth</th>
+                        <th>REAL Votes</th>
+                        <th>FAKE Votes</th>
+                        <th>Total</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for img in per_image_data %}
+                    <tr>
+                        <td class="mono">{{ img.uuid }}</td>
+                        <td>{{ img.category }}</td>
+                        <td><span class="label label-{{ img.ground_truth|lower }}">{{ img.ground_truth }}</span></td>
+                        <td>{{ img.real_votes }}</td>
+                        <td>{{ img.fake_votes }}</td>
+                        <td>{{ img.total_votes }}</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+
+        <!-- Download -->
+        <div class="section download-section">
+            <a href="/{{ dataset }}/stats/download?pwd={{ pwd }}" class="btn btn-download">
+                ⬇ Download Full Results (JSON)
+            </a>
+        </div>
+    </div>
+</body>
+</html>
