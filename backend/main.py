@@ -1,4 +1,5 @@
 import logging
+from contextlib import asynccontextmanager
 from typing import List
 import cv2
 import numpy as np
@@ -21,17 +22,21 @@ class AnalysisResult(BaseModel):
     cuda_alloc_mb: float = 0.0
     cuda_res_mb: float = 0.0
 
-app = FastAPI(title="ApertureAuthentiLens API")
-
 _device = None
 _detector = None
 
-@app.on_event("startup")
-async def _load_models():
+@asynccontextmanager
+async def lifespan(app: FastAPI):
     global _device, _detector
+    # Startup
     _device = get_device()
     logger.info(f"Loading Models onto {_device}...")
     _detector = AuthenticDetector(device=_device)
+    yield
+    # Shutdown
+    logger.info("Shutting down...")
+
+app = FastAPI(title="ApertureAuthentiLens API", lifespan=lifespan)
 
 @app.get("/health")
 async def health_check():

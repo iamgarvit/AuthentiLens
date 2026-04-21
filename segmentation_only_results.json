@@ -1,0 +1,12 @@
+{
+    "DeepLabV3Plus": {
+        "mIoU": 0.1675761231830457,
+        "pixel_accuracy": 0.6176137636887205,
+        "total_evaluated": 1029
+    },
+    "UNet": {
+        "mIoU": 0.1728320877181176,
+        "pixel_accuracy": 0.6329514936293296,
+        "total_evaluated": 1029
+    }
+}

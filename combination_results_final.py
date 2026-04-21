@@ -98,7 +98,9 @@ def load_efficientnet(path):
     effnet.eval()
     return effnet
 
-def run_eval(pixel_threshold):
+def run_eval(override_threshold):
+    # keep pixel_threshold fixed to 0.7 for the segmentation mask output
+    pixel_threshold = 0.7
     classifiers = {
         'ResNet': load_resnet('checkpoints_resnet_sd_2.5e-5/best_model.pth'),
         'EfficientNet': load_efficientnet('checkpoints_efficientnet_sd_2.5e-5/best_model.pth')
@@ -183,8 +185,8 @@ def run_eval(pixel_threshold):
                     res["seg_iou"].append(s_preds[sname]["iou"])
                     res["seg_pixel_acc"].append(s_preds[sname]["pixel_acc"])
                 
-                # Pipeline logic: if the user's heuristic says FAKE via Seg pct > 30% when class != FAKE
-                is_seg_fake = s_preds[sname]["flagged_pct"] > 30.0
+                # Pipeline logic: if the user's heuristic says FAKE via Seg pct > override_threshold when class != FAKE
+                is_seg_fake = s_preds[sname]["flagged_pct"] > override_threshold
                 if is_cls_fake or is_seg_fake:
                     res["pipeline_fake_detected"] += 1
 
@@ -194,18 +196,18 @@ def run_eval(pixel_threshold):
         summary[k] = {
             "total_images": v["total_images"],
             "classifier_fake_TPR": v["classifier_correct"] / v["total_images"] if v["total_images"] > 0 else 0,
-            "segmentation_mIoU": float(np.mean(v["seg_iou"])) if v["seg_iou"] else 0.0,
-            "segmentation_pixel_accuracy": float(np.mean(v["seg_pixel_acc"])) if v["seg_pixel_acc"] else 0.0,
+            "segmentation_mIoU": float(np.mean(v["seg_iou"])) if len(v["seg_iou"]) > 0 else 0.0,
+            "segmentation_pixel_accuracy": float(np.mean(v["seg_pixel_acc"])) if len(v["seg_pixel_acc"]) > 0 else 0.0,
             "combined_pipeline_TPR": v["pipeline_fake_detected"] / v["total_images"] if v["total_images"] > 0 else 0
         }
         
-    with open(f'combinations_test_results_{pixel_threshold}.json', 'w') as f:
+    with open(f'combinations_test_results_override_{override_threshold}.json', 'w') as f:
         json.dump(summary, f, indent=4)
-    print(f"Saved combinations_test_results_{pixel_threshold}.json")
+    print(f"Saved combinations_test_results_override_{override_threshold}.json")
 
     print(json.dumps(summary, indent=4))
 
 if __name__ == '__main__':
-    for t in [0.6, 0.7]:
-        print(f"Evaluating with segmentation pixel threshold {t}...")
+    for t in [50, 70]:
+        print(f"Evaluating with segmentation override threshold {t}%...")
         run_eval(t)

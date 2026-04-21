@@ -1,5 +1,5 @@
 # =============================================================================
-# AuthentiLens — Streamlit Demo (Enhanced)
+# AuthentiLens - Streamlit Demo (Enhanced)
 # =============================================================================
 # Combines segmentation (DeepLabV3Plus) and classification (ResNet + EfficientNet)
 # - Segmentation: Detects AI-inpainted regions
@@ -9,7 +9,7 @@
 #   streamlit run new_app.py --server.port 8501
 #
 # Dependencies:
-#   pip install streamlit segmentation-models-pytorch torch torchvision pillow numpy
+#   pip install streamlit segmentation-models-pytorch torch torchvision pillow numpy opencv-python
 # =============================================================================
 
 import io
@@ -27,20 +27,54 @@ import psutil
 from PIL import Image
 import matplotlib.colors as mcolors
 from datetime import datetime
+try:
+    import cv2
+    from utils_noiseprint import generate_noiseprint_like_from_pil
+    NOISEPRINT_AVAILABLE = True
+    NOISEPRINT_IMPORT_ERROR = ""
+except Exception as e:
+    cv2 = None
+    generate_noiseprint_like_from_pil = None
+    NOISEPRINT_AVAILABLE = False
+    NOISEPRINT_IMPORT_ERROR = str(e)
 
 # =============================================================================
 # CONFIG
 # =============================================================================
 
 # Segmentation
-DEEPLAB_CHECKPOINT = './checkpoints_deeplab/best_model.pth'
-UNET_CHECKPOINT = './checkpoints_unet/best_model.pth'
 SEGMENTATION_IMAGE_SIZE = 512
+SEGMENTATION_MODEL_OPTIONS = {
+    'DeepLabV3Plus (best_model)': {
+        'architecture': 'deeplabv3plus',
+        'checkpoint_path': './checkpoints_deeplab/best_model.pth',
+    },
+    'UNet (best_model)': {
+        'architecture': 'unet',
+        'checkpoint_path': './checkpoints_unet/best_model.pth',
+    },
+}
 
 # Classification
-RESNET_CHECKPOINT = './checkpoints_resnet_sd_2.5e-5/best_model.pth'
-EFFICIENTNET_CHECKPOINT = './checkpoints_efficientnet_sd_2.5e-5/best_model.pth'
 CLASSIFIER_IMAGE_SIZE = 224
+CLASSIFIER_MODEL_OPTIONS = {
+    'ResNet-50 (sd_2.5e-5)': {
+        'architecture': 'resnet50',
+        'checkpoint_path': './checkpoints_resnet_sd_2.5e-5/best_model.pth',
+    },
+    'ResNet-50 (sd_1e-4)': {
+        'architecture': 'resnet50',
+        'checkpoint_path': './checkpoints_resnet_sd_1e-4/best_model.pth',
+    },
+    'EfficientNet-B0 (sd_2.5e-5)': {
+        'architecture': 'efficientnet_b0',
+        'checkpoint_path': './checkpoints_efficientnet_sd_2.5e-5/best_model.pth',
+    },
+    'EfficientNet-B0 (sd_1e-4)': {
+        'architecture': 'efficientnet_b0',
+        'checkpoint_path': './checkpoints_efficientnet_sd_1e-4/best_model.pth',
+    },
+}
 
 # Class names for classification
 CLASS_NAMES = {0: "FAKE", 1: "REAL"}
@@ -50,7 +84,6 @@ DEVICE = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 # ImageNet normalization
 MEAN = [0.485, 0.456, 0.406]
 STD = [0.229, 0.224, 0.225]
-
 
 # =============================================================================
 # SESSION STATE INITIALIZATION
@@ -65,80 +98,85 @@ if 'results_history' not in st.session_state:
 # =============================================================================
 
 @st.cache_resource(show_spinner='Loading segmentation models...')
-def load_all_segmentation_models():
-    """Load both DeepLabV3Plus and UNet for inpainting detection."""
+def load_selected_segmentation_models(selected_model_names: tuple):
+    """Load selected segmentation models for inpainting detection."""
     models = {}
-    
-    # DeepLabV3Plus
-    if os.path.exists(DEEPLAB_CHECKPOINT):
-        deeplab = smp.DeepLabV3Plus(
-            encoder_name='resnet50',
-            encoder_weights=None,
-            in_channels=3,
-            classes=1,
-            activation=None,
-        )
-        deeplab.decoder.block2 = nn.Sequential(
-            deeplab.decoder.block2,
-            nn.Dropout2d(p=0.3),
-        )
 
-        ckpt = torch.load(DEEPLAB_CHECKPOINT, map_location=DEVICE)
-        state = ckpt.get('model_state_dict', ckpt)
+    for model_name in selected_model_names:
+        cfg = SEGMENTATION_MODEL_OPTIONS.get(model_name)
+        if cfg is None:
+            continue
 
-        # Handle buggy checkpoint variant
-        is_buggy = any(k.startswith('decoder.block.') for k in state.keys())
-        if is_buggy:
-            new_state = {}
-            for k, v in state.items():
-                if k.startswith('decoder.block.1.'):
-                    suffix = k[len('decoder.block.1.'):]
-                    new_key = f'decoder.block2.0.{suffix}'
-                    new_state[new_key] = v
-                elif k.startswith('decoder.block.'):
-                    pass
-                elif k.startswith('decoder.block2.'):
-                    pass
-                else:
-                    new_state[k] = v
-            state = new_state
+        checkpoint_path = cfg['checkpoint_path']
+        architecture = cfg['architecture']
 
-        deeplab.load_state_dict(state, strict=True)
-        deeplab.to(DEVICE)
-        deeplab.eval()
-        models['DeepLabV3Plus'] = deeplab
-    else:
-        st.warning(f"DeepLabV3Plus checkpoint not found: {DEEPLAB_CHECKPOINT}")
+        if not os.path.exists(checkpoint_path):
+            st.warning(f"{model_name} checkpoint not found: {checkpoint_path}")
+            continue
 
-    # UNet
-    if os.path.exists(UNET_CHECKPOINT):
-        unet = smp.Unet(
-            encoder_name='resnet50',
-            encoder_weights=None,
-            in_channels=3,
-            classes=1,
-            activation=None,
-            decoder_channels=(256, 128, 64, 32, 16),
-            decoder_use_batchnorm=True,
-        )
-        
-        dropout_p = 0.3
-        for i, block in enumerate(unet.decoder.blocks):
-            n = len(unet.decoder.blocks)
-            scaled = dropout_p * (0.4 + 0.6 * i / max(n - 1, 1))
-            block.conv2 = nn.Sequential(
-                block.conv2,
-                nn.Dropout2d(p=scaled),
+        if architecture == 'deeplabv3plus':
+            model = smp.DeepLabV3Plus(
+                encoder_name='resnet50',
+                encoder_weights=None,
+                in_channels=3,
+                classes=1,
+                activation=None,
             )
-            
-        ckpt = torch.load(UNET_CHECKPOINT, map_location=DEVICE)
-        state = ckpt.get('model_state_dict', ckpt)
-        unet.load_state_dict(state, strict=True)
-        unet.to(DEVICE)
-        unet.eval()
-        models['UNet'] = unet
-    else:
-        st.warning(f"UNet checkpoint not found: {UNET_CHECKPOINT}")
+            model.decoder.block2 = nn.Sequential(
+                model.decoder.block2,
+                nn.Dropout2d(p=0.3),
+            )
+            ckpt = torch.load(checkpoint_path, map_location=DEVICE)
+            state = ckpt.get('model_state_dict', ckpt)
+
+            # Handle buggy checkpoint variant
+            is_buggy = any(k.startswith('decoder.block.') for k in state.keys())
+            if is_buggy:
+                new_state = {}
+                for k, v in state.items():
+                    if k.startswith('decoder.block.1.'):
+                        suffix = k[len('decoder.block.1.'):]
+                        new_key = f'decoder.block2.0.{suffix}'
+                        new_state[new_key] = v
+                    elif k.startswith('decoder.block.'):
+                        pass
+                    elif k.startswith('decoder.block2.'):
+                        pass
+                    else:
+                        new_state[k] = v
+                state = new_state
+
+            model.load_state_dict(state, strict=True)
+            model.to(DEVICE)
+            model.eval()
+            models[model_name] = model
+
+        elif architecture == 'unet':
+            model = smp.Unet(
+                encoder_name='resnet50',
+                encoder_weights=None,
+                in_channels=3,
+                classes=1,
+                activation=None,
+                decoder_channels=(256, 128, 64, 32, 16),
+                decoder_use_batchnorm=True,
+            )
+
+            dropout_p = 0.3
+            for i, block in enumerate(model.decoder.blocks):
+                n = len(model.decoder.blocks)
+                scaled = dropout_p * (0.4 + 0.6 * i / max(n - 1, 1))
+                block.conv2 = nn.Sequential(
+                    block.conv2,
+                    nn.Dropout2d(p=scaled),
+                )
+
+            ckpt = torch.load(checkpoint_path, map_location=DEVICE)
+            state = ckpt.get('model_state_dict', ckpt)
+            model.load_state_dict(state, strict=True)
+            model.to(DEVICE)
+            model.eval()
+            models[model_name] = model
 
     return models
 
@@ -148,37 +186,41 @@ def load_all_segmentation_models():
 # =============================================================================
 
 @st.cache_resource(show_spinner='Loading classification models...')
-def load_classifier_models():
-    """Load both ResNet-50 and EfficientNet-B0 for classification."""
+def load_selected_classifier_models(selected_model_names: tuple):
+    """Load selected classifier models for image classification."""
     from torchvision.models import resnet50, efficientnet_b0
 
     models = {}
 
-    # ResNet-50
-    if os.path.exists(RESNET_CHECKPOINT):
-        resnet = resnet50(pretrained=False)
-        resnet.fc = nn.Sequential(
-            nn.Dropout(0.3),
-            nn.Linear(resnet.fc.in_features, 2)
-        )
-        resnet.load_state_dict(torch.load(RESNET_CHECKPOINT, map_location=DEVICE))
-        resnet.to(DEVICE)
-        resnet.eval()
-        models['ResNet-50'] = resnet
-    else:
-        st.warning(f'ResNet checkpoint not found: {RESNET_CHECKPOINT}')
+    for model_name in selected_model_names:
+        cfg = CLASSIFIER_MODEL_OPTIONS.get(model_name)
+        if cfg is None:
+            continue
 
-    # EfficientNet-B0
-    if os.path.exists(EFFICIENTNET_CHECKPOINT):
-        efficientnet = efficientnet_b0(pretrained=False)
-        num_ftrs = efficientnet.classifier[1].in_features
-        efficientnet.classifier[1] = nn.Linear(num_ftrs, 2)
-        efficientnet.load_state_dict(torch.load(EFFICIENTNET_CHECKPOINT, map_location=DEVICE))
-        efficientnet.to(DEVICE)
-        efficientnet.eval()
-        models['EfficientNet-B0'] = efficientnet
-    else:
-        st.warning(f'EfficientNet checkpoint not found: {EFFICIENTNET_CHECKPOINT}')
+        checkpoint_path = cfg['checkpoint_path']
+        architecture = cfg['architecture']
+
+        if not os.path.exists(checkpoint_path):
+            st.warning(f'{model_name} checkpoint not found: {checkpoint_path}')
+            continue
+
+        if architecture == 'resnet50':
+            model = resnet50(pretrained=False)
+            model.fc = nn.Sequential(
+                nn.Dropout(0.3),
+                nn.Linear(model.fc.in_features, 2)
+            )
+        elif architecture == 'efficientnet_b0':
+            model = efficientnet_b0(pretrained=False)
+            num_ftrs = model.classifier[1].in_features
+            model.classifier[1] = nn.Linear(num_ftrs, 2)
+        else:
+            continue
+
+        model.load_state_dict(torch.load(checkpoint_path, map_location=DEVICE))
+        model.to(DEVICE)
+        model.eval()
+        models[model_name] = model
 
     return models
 
@@ -260,6 +302,40 @@ def run_classification_inference(models: dict, pil_image: Image.Image) -> dict:
 
 
 # =============================================================================
+# NOISEPRINT INFERENCE
+# =============================================================================
+
+def run_noiseprint_inference(pil_image: Image.Image) -> dict:
+    """
+    Run a Noiseprint-like residual analysis and return display-ready artifacts.
+    """
+    noiseprint_map = generate_noiseprint_like_from_pil(pil_image)
+    residual_uint8 = (noiseprint_map * 255).astype(np.uint8)
+
+    heatmap_bgr = cv2.applyColorMap(residual_uint8, cv2.COLORMAP_INFERNO)
+    heatmap_rgb = cv2.cvtColor(heatmap_bgr, cv2.COLOR_BGR2RGB)
+    original_rgb = np.array(pil_image.convert('RGB'))
+    overlay_rgb = cv2.addWeighted(original_rgb, 0.65, heatmap_rgb, 0.35, 0)
+
+    mean_score = float(noiseprint_map.mean())
+    std_score = float(noiseprint_map.std())
+    max_score = float(noiseprint_map.max())
+    high_activity_ratio = float((noiseprint_map > 0.60).mean())
+
+    return {
+        'residual_map': noiseprint_map,
+        'residual_uint8': residual_uint8,
+        'heatmap_rgb': heatmap_rgb,
+        'overlay_rgb': overlay_rgb,
+        'mean_score': mean_score,
+        'std_score': std_score,
+        'max_score': max_score,
+        'high_activity_ratio': high_activity_ratio,
+        'fake_score': (0.50 * mean_score) + (0.30 * std_score) + (0.20 * high_activity_ratio),
+    }
+
+
+# =============================================================================
 # VISUALIZATION HELPERS
 # =============================================================================
 
@@ -279,7 +355,7 @@ def make_overlay(pil_image: Image.Image, prob_map: np.ndarray, opacity: float, t
 
     normalized = np.clip((smoothed - p_low) / (p_high - p_low + 1e-8), 0, 1)
 
-    # --- 3. Realistic heatmap colormap (deep blue → cyan → green → yellow → red) ---
+    # --- 3. Realistic heatmap colormap (deep blue -> cyan -> green -> yellow -> red) ---
     cmap = mcolors.LinearSegmentedColormap.from_list(
         'realistic_heat', [
             (0.00, '#0000ff'),  # deep blue  - very low
@@ -352,7 +428,6 @@ def numpy_to_uint8_image(arr: np.ndarray) -> Image.Image:
 
 st.set_page_config(
     page_title='AuthentiLens',
-    page_icon='🤖',
     layout='wide',
     initial_sidebar_state='expanded'
 )
@@ -380,7 +455,7 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-st.title('🤖 AuthentiLens')
+st.title('AuthentiLens')
 st.markdown(
     '**Analyze images** using segmentation (detect inpainted regions) and classification (overall category prediction).'
 )
@@ -390,7 +465,44 @@ st.markdown(
 # =============================================================================
 
 with st.sidebar:
-    st.header('⚙️ Settings')
+    st.header('Settings')
+
+    st.subheader('Model Selection')
+    selected_classifier_names = st.multiselect(
+        'Classification models',
+        options=list(CLASSIFIER_MODEL_OPTIONS.keys()),
+        default=[
+            'ResNet-50 (sd_2.5e-5)',
+            'EfficientNet-B0 (sd_2.5e-5)',
+        ],
+        help='Choose one or more classifier checkpoints to test on uploaded images.'
+    )
+    selected_segmentation_names = st.multiselect(
+        'Segmentation models',
+        options=list(SEGMENTATION_MODEL_OPTIONS.keys()),
+        default=list(SEGMENTATION_MODEL_OPTIONS.keys()),
+        help='Choose one or more segmentation checkpoints for tamper-region visualization.'
+    )
+
+    st.subheader('Additional Model')
+    run_noiseprint_model = st.checkbox(
+        'Run Noiseprint model',
+        value=NOISEPRINT_AVAILABLE,
+        disabled=not NOISEPRINT_AVAILABLE,
+        help='Runs a separate Noiseprint-like residual analysis after classification and segmentation.'
+    )
+    noiseprint_fake_threshold = st.slider(
+        'Noiseprint FAKE threshold',
+        min_value=0.05,
+        max_value=0.50,
+        value=0.18,
+        step=0.01,
+        help='If Noiseprint score is above this value, prediction is FAKE.'
+    )
+    if not NOISEPRINT_AVAILABLE:
+        st.caption(f'Noiseprint unavailable: {NOISEPRINT_IMPORT_ERROR}')
+
+    st.divider()
 
     heuristic_threshold = st.slider(
         'Heuristic Threshold (%)',
@@ -419,40 +531,43 @@ with st.sidebar:
 
     st.divider()
     st.markdown(f'**Device:** `{DEVICE}`')
-    st.markdown(f'**Models:** Segmentation + {len(st.session_state.get("classifier_models", {}))} Classifiers')
+    st.markdown(
+        f'**Selected:** {len(selected_segmentation_names)} segmentation, '
+        f'{len(selected_classifier_names)} classification, '
+        f'Noiseprint {"On" if run_noiseprint_model else "Off"}'
+    )
 
     st.divider()
     st.markdown("""
 **Segmentation color legend**
 
-🟢 Green = Low inpainting probability  
-🟡 Yellow = High inpainting probability  
-⬜ Transparent = Below threshold
+Green = Low inpainting probability
+Yellow = High inpainting probability
+Transparent = Below threshold
     """)
-
 # =============================================================================
 # MODEL LOADING
 # =============================================================================
 
 try:
-    seg_models = load_all_segmentation_models()
+    seg_models = load_selected_segmentation_models(tuple(selected_segmentation_names))
     if seg_models:
-        st.sidebar.success(f'✓ Segmentation models loaded ({len(seg_models)})')
+        st.sidebar.success(f'Segmentation models loaded ({len(seg_models)})')
     else:
-        st.sidebar.warning('⚠️ No segmentation models available')
+        st.sidebar.warning('No segmentation model selected/available')
 except Exception as e:
-    st.error(f'❌ Failed to load segmentation models: {e}')
+    st.error(f'Failed to load segmentation models: {e}')
     st.stop()
 
 try:
-    classifier_models = load_classifier_models()
+    classifier_models = load_selected_classifier_models(tuple(selected_classifier_names))
     st.session_state.classifier_models = classifier_models
     if classifier_models:
-        st.sidebar.success(f'✓ Classification models loaded ({len(classifier_models)})')
+        st.sidebar.success(f'Classification models loaded ({len(classifier_models)})')
     else:
-        st.sidebar.warning('⚠️ No classification models available')
+        st.sidebar.warning('No classification model selected/available')
 except Exception as e:
-    st.error(f'❌ Failed to load classification models: {e}')
+    st.error(f'Failed to load classification models: {e}')
     st.stop()
 
 # =============================================================================
@@ -466,7 +581,7 @@ uploaded_files = st.file_uploader(
 )
 
 if not uploaded_files:
-    st.info('👆 Upload an image to analyze')
+    st.info('Upload an image to analyze')
     st.stop()
 
 # =============================================================================
@@ -475,12 +590,11 @@ if not uploaded_files:
 
 for uploaded_file in uploaded_files:
     st.divider()
-    st.subheader(f'📄 {uploaded_file.name}')
-
+    st.subheader(f'File: {uploaded_file.name}')
     try:
         pil_image = Image.open(uploaded_file).convert('RGB')
         W, H = pil_image.size
-        st.caption(f'Resolution: {W}×{H}px')
+        st.caption(f'Resolution: {W}x{H}px')
 
         # Prepare CPU/RAM baseline
         process = psutil.Process(os.getpid())
@@ -508,7 +622,24 @@ for uploaded_file in uploaded_files:
                 classification_results = run_classification_inference(classifier_models, pil_image)
             else:
                 classification_results = {}
-            
+
+            noiseprint_results = None
+            if run_noiseprint_model and NOISEPRINT_AVAILABLE:
+                n_start = time.time()
+                noiseprint_results = run_noiseprint_inference(pil_image)
+                noiseprint_results['inference_time'] = time.time() - n_start
+                noiseprint_results['threshold'] = noiseprint_fake_threshold
+
+                fake_score = noiseprint_results['fake_score']
+                pred_class = 'FAKE' if fake_score >= noiseprint_fake_threshold else 'REAL'
+                if pred_class == 'FAKE':
+                    conf = (fake_score - noiseprint_fake_threshold) / max(1.0 - noiseprint_fake_threshold, 1e-8)
+                else:
+                    conf = (noiseprint_fake_threshold - fake_score) / max(noiseprint_fake_threshold, 1e-8)
+
+                noiseprint_results['prediction'] = pred_class
+                noiseprint_results['confidence_pct'] = float(np.clip(conf, 0.0, 1.0) * 100.0)
+
             overall_time = time.time() - overall_start_time
 
         # Gather System Info
@@ -537,28 +668,65 @@ for uploaded_file in uploaded_files:
             
         final_prediction = ""
         heuristic_reason = ""
-        
-        if classification_results and 'ResNet-50' in classification_results and 'EfficientNet-B0' in classification_results:
-            resnet_class = classification_results['ResNet-50']['class']
-            effnet_class = classification_results['EfficientNet-B0']['class']
-            
-            if resnet_class == effnet_class:
-                final_prediction = resnet_class
-                heuristic_reason = f"Both classifiers agree on {final_prediction}."
+        if classification_results:
+            fake_votes = sum(1 for r in classification_results.values() if r['class'] == 'FAKE')
+            real_votes = sum(1 for r in classification_results.values() if r['class'] == 'REAL')
+
+            if fake_votes > real_votes:
+                final_prediction = 'FAKE'
+                heuristic_reason = f'Majority vote from classifiers: {fake_votes} FAKE vs {real_votes} REAL.'
+            elif real_votes > fake_votes:
+                final_prediction = 'REAL'
+                heuristic_reason = f'Majority vote from classifiers: {real_votes} REAL vs {fake_votes} FAKE.'
             else:
-                # Conflict resolution via segmentation heuristic
-                if mean_flagged_pct > heuristic_threshold:
-                    final_prediction = "FAKE"
-                    heuristic_reason = f"Classifiers conflicted. Segmentation tools averged {mean_flagged_pct:.2f}% flagged pixels (> {heuristic_threshold}%), therefore FAKE."
+                # Tie-break with segmentation when available
+                if segmentation_results:
+                    if mean_flagged_pct > heuristic_threshold:
+                        final_prediction = 'FAKE'
+                        heuristic_reason = (
+                            f'Classifier tie ({fake_votes}-{real_votes}). '
+                            f'Segmentation averaged {mean_flagged_pct:.2f}% flagged pixels (> {heuristic_threshold}%), so FAKE.'
+                        )
+                    else:
+                        final_prediction = 'REAL'
+                        heuristic_reason = (
+                            f'Classifier tie ({fake_votes}-{real_votes}). '
+                            f'Segmentation averaged {mean_flagged_pct:.2f}% flagged pixels (<= {heuristic_threshold}%), so REAL.'
+                        )
                 else:
-                    final_prediction = "REAL"
-                    heuristic_reason = f"Classifiers conflicted. Segmentation tools averaged {mean_flagged_pct:.2f}% flagged pixels (<= {heuristic_threshold}%), therefore REAL."
+                    avg_fake_prob = float(np.mean([r['probabilities']['FAKE'] for r in classification_results.values()]))
+                    final_prediction = 'FAKE' if avg_fake_prob >= 50.0 else 'REAL'
+                    heuristic_reason = (
+                        f'Classifier tie ({fake_votes}-{real_votes}) without segmentation. '
+                        f'Average FAKE confidence={avg_fake_prob:.2f}%, so {final_prediction}.'
+                    )
+        elif segmentation_results:
+            final_prediction = 'FAKE' if mean_flagged_pct > heuristic_threshold else 'REAL'
+            comparator = '>' if mean_flagged_pct > heuristic_threshold else '<='
+            heuristic_reason = (
+                f'No classifier selected. Segmentation averaged {mean_flagged_pct:.2f}% flagged pixels '
+                f'({comparator} {heuristic_threshold}%), so {final_prediction}.'
+            )
         
         # Store results in session history
         result_entry = {
             'filename': uploaded_file.name,
             'timestamp': datetime.now().isoformat(),
             'threshold': threshold,
+            'selected_classifier_models': list(classifier_models.keys()),
+            'selected_segmentation_models': list(seg_models.keys()),
+            'noiseprint_enabled': bool(run_noiseprint_model and NOISEPRINT_AVAILABLE),
+            'noiseprint_summary': {
+                'mean_score': noiseprint_results['mean_score'],
+                'std_score': noiseprint_results['std_score'],
+                'max_score': noiseprint_results['max_score'],
+                'high_activity_ratio': noiseprint_results['high_activity_ratio'],
+                'fake_score': noiseprint_results['fake_score'],
+                'threshold': noiseprint_results['threshold'],
+                'prediction': noiseprint_results['prediction'],
+                'confidence_pct': noiseprint_results['confidence_pct'],
+                'inference_time': noiseprint_results['inference_time'],
+            } if noiseprint_results else None,
             'flagged_pct': mean_flagged_pct,
             'classification_results': classification_results,
             'final_prediction': final_prediction,
@@ -568,7 +736,7 @@ for uploaded_file in uploaded_files:
         
         # --- DISPLAY FINAL DECISION ---
         if final_prediction:
-            st.markdown('### 🎯 Final Prediction (Heuristic)')
+            st.markdown('### Final Prediction (Heuristic)')
             decision_color = "#ff4b4b" if final_prediction == "FAKE" else "#00d084"
             st.markdown(f"""
             <div style="background: #f0f2f6; padding: 1.5rem; border-radius: 10px; border-left: 6px solid {decision_color}; margin-bottom: 1rem;">
@@ -583,8 +751,7 @@ for uploaded_file in uploaded_files:
 
         # --- CLASSIFICATION RESULTS ---
         if classification_results:
-            st.markdown('### 🏷️ Classification Results')
-
+            st.markdown('### Classification Results')
             cols = st.columns(len(classification_results))
             for idx, (model_name, result) in enumerate(classification_results.items()):
                 with cols[idx]:
@@ -612,43 +779,104 @@ for uploaded_file in uploaded_files:
                             {list(result['probabilities'].keys())[1]}: {result['probabilities'][list(result['probabilities'].keys())[1]]:.1f}%
                         </div>
                         <div style="font-size: 0.85rem; color: #444; border-top: 1px solid #ddd; padding-top: 0.4rem; font-weight: 500;">
-                            ⏱️ Inference Time: {result.get('inference_time', 0.0):.3f}s
+                            Inference Time: {result.get('inference_time', 0.0):.3f}s
                         </div>
                     </div>
                     """, unsafe_allow_html=True)
 
         # --- SEGMENTATION VISUALIZATION ---
-        st.markdown('### 🔍 Segmentation Analysis')
+        if segmentation_results:
+            st.markdown('### Segmentation Analysis')
+            st.image(pil_image, caption='Original Image')
+            st.write('')
 
-        st.image(pil_image, caption='Original Image')
-        st.write("")
+            for model_name, results in segmentation_results.items():
+                st.markdown(f"**{model_name} Results:**")
+                
+                n_cols = 1 + int(show_seg_raw) + int(show_seg_binary)
+                cols = st.columns(n_cols)
 
-        for model_name, results in segmentation_results.items():
-            st.markdown(f"**{model_name} Results:**")
-            
-            n_cols = 1 + int(show_seg_raw) + int(show_seg_binary)
-            cols = st.columns(n_cols)
-
-            col_idx = 0
-            with cols[col_idx]:
-                st.image(results['overlay'], caption=f'{model_name} Heatmap', use_container_width=True)
-            col_idx += 1
-
-            if show_seg_raw:
+                col_idx = 0
                 with cols[col_idx]:
-                    st.image(get_prob_map_image(results['prob_map']), caption=f'{model_name} Probability', use_container_width=True)
+                    st.image(results['overlay'], caption=f'{model_name} Heatmap', use_container_width=True)
                 col_idx += 1
 
-            if show_seg_binary:
-                with cols[col_idx]:
-                    st.image((results['binary_map'] * 255).astype(np.uint8), caption=f'{model_name} Mask (t={threshold})', use_container_width=True)
+                if show_seg_raw:
+                    with cols[col_idx]:
+                        st.image(get_prob_map_image(results['prob_map']), caption=f'{model_name} Probability', use_container_width=True)
+                    col_idx += 1
 
-            st.divider()
+                if show_seg_binary:
+                    with cols[col_idx]:
+                        st.image((results['binary_map'] * 255).astype(np.uint8), caption=f'{model_name} Mask (t={threshold})', use_container_width=True)
+
+                st.divider()
+        else:
+            st.info('No segmentation model selected for this run.')
+
+        if noiseprint_results:
+            st.markdown('### Noiseprint Analysis')
+            np_pred = noiseprint_results['prediction']
+            np_conf = noiseprint_results['confidence_pct']
+            pred_color = '#ff4b4b' if np_pred == 'FAKE' else '#00d084'
+            st.markdown(
+                f"""
+                <div style="background: #f0f2f6; padding: 1.0rem; border-radius: 10px; border-left: 6px solid {pred_color}; margin-bottom: 1rem;">
+                    <div style="font-size: 1.2rem; font-weight: 700; color: {pred_color};">
+                        Noiseprint Prediction: {np_pred} ({np_conf:.1f}%)
+                    </div>
+                    <div style="font-size: 0.92rem; color: #444; margin-top: 0.25rem;">
+                        Score: {noiseprint_results['fake_score']:.4f} | Threshold: {noiseprint_results['threshold']:.4f}
+                    </div>
+                </div>
+                """,
+                unsafe_allow_html=True
+            )
+
+            n1, n2, n3 = st.columns(3)
+            with n1:
+                st.image(noiseprint_results['residual_uint8'], caption='Noiseprint Residual', use_container_width=True, clamp=True)
+            with n2:
+                st.image(noiseprint_results['heatmap_rgb'], caption='Noiseprint Heatmap', use_container_width=True)
+            with n3:
+                st.image(noiseprint_results['overlay_rgb'], caption='Noiseprint Overlay', use_container_width=True)
+
+            nm1, nm2, nm3, nm4, nm5 = st.columns(5)
+            nm1.metric('Residual Mean', f"{noiseprint_results['mean_score']:.4f}")
+            nm2.metric('Residual Std', f"{noiseprint_results['std_score']:.4f}")
+            nm3.metric('Residual Max', f"{noiseprint_results['max_score']:.4f}")
+            nm4.metric('Fake Score', f"{noiseprint_results['fake_score']:.4f}")
+            nm5.metric('Inference Time', f"{noiseprint_results['inference_time']:.3f}s")
+        elif run_noiseprint_model and not NOISEPRINT_AVAILABLE:
+            st.warning(f'Noiseprint model unavailable: {NOISEPRINT_IMPORT_ERROR}')
 
         # --- DOWNLOAD OPTIONS ---
         if show_download_options:
-            st.markdown('#### 💾 Download Results')
-            
+            st.markdown('#### Download Results')
+            if noiseprint_results:
+                nd1, nd2, nd3 = st.columns(3)
+                with nd1:
+                    st.download_button(
+                        label='Noiseprint Residual',
+                        data=image_to_bytes(Image.fromarray(noiseprint_results['residual_uint8'])),
+                        file_name=f'{uploaded_file.name.rsplit(".", 1)[0]}_noiseprint_residual.png',
+                        mime='image/png'
+                    )
+                with nd2:
+                    st.download_button(
+                        label='Noiseprint Heatmap',
+                        data=image_to_bytes(Image.fromarray(noiseprint_results['heatmap_rgb'])),
+                        file_name=f'{uploaded_file.name.rsplit(".", 1)[0]}_noiseprint_heatmap.png',
+                        mime='image/png'
+                    )
+                with nd3:
+                    st.download_button(
+                        label='Noiseprint Overlay',
+                        data=image_to_bytes(Image.fromarray(noiseprint_results['overlay_rgb'])),
+                        file_name=f'{uploaded_file.name.rsplit(".", 1)[0]}_noiseprint_overlay.png',
+                        mime='image/png'
+                    )
+
             for model_name, results in segmentation_results.items():
                 st.markdown(f"**{model_name}:**")
                 dcols = st.columns(3)
@@ -656,7 +884,7 @@ for uploaded_file in uploaded_files:
                 with dcols[0]:
                     overlay_bytes = image_to_bytes(results['overlay'])
                     st.download_button(
-                        label=f'📥 {model_name} Heatmap',
+                        label=f'{model_name} Heatmap',
                         data=overlay_bytes,
                         file_name=f'{uploaded_file.name.rsplit(".", 1)[0]}_{model_name}_heatmap.png',
                         mime='image/png'
@@ -666,7 +894,7 @@ for uploaded_file in uploaded_files:
                     binary_img = Image.fromarray((results['binary_map'] * 255).astype(np.uint8))
                     binary_bytes = image_to_bytes(binary_img)
                     st.download_button(
-                        label=f'📥 {model_name} Mask',
+                        label=f'{model_name} Mask',
                         data=binary_bytes,
                         file_name=f'{uploaded_file.name.rsplit(".", 1)[0]}_{model_name}_mask.png',
                         mime='image/png'
@@ -675,7 +903,7 @@ for uploaded_file in uploaded_files:
                 with dcols[2]:
                     prob_img_bytes = image_to_bytes(get_prob_map_image(results['prob_map']))
                     st.download_button(
-                        label=f'📥 {model_name} Prob Map',
+                        label=f'{model_name} Prob Map',
                         data=prob_img_bytes,
                         file_name=f'{uploaded_file.name.rsplit(".", 1)[0]}_{model_name}_prob.png',
                         mime='image/png'
@@ -683,8 +911,7 @@ for uploaded_file in uploaded_files:
 
         # --- STATISTICS ---
         if show_seg_stats:
-            st.markdown('#### 📊 Segmentation Statistics')
-
+            st.markdown('#### Segmentation Statistics')
             for model_name, results in segmentation_results.items():
                 st.markdown(f"**{model_name}**")
                 mean_prob = float(results['prob_map'].mean())
@@ -701,8 +928,7 @@ for uploaded_file in uploaded_files:
                 st.write("")
         
         # --- SYSTEM STATS ---
-        st.markdown('#### 🖥️ System Performance')
-        
+        st.markdown('#### System Performance')
         sys_c1, sys_c2, sys_c3, sys_c4 = st.columns(4)
         sys_c1.metric("Total Execution Time", f"{system_stats['overall_time']:.2f} s")
         sys_c2.metric("CPU Util During Inference", f"{system_stats['cpu_percent']}%")
@@ -717,7 +943,7 @@ for uploaded_file in uploaded_files:
 
     except Exception as e:
         import traceback
-        st.error(f'❌ Error processing image: {e}')
+        st.error(f'Error processing image: {e}')
         st.error(traceback.format_exc())
         continue
 
@@ -727,16 +953,20 @@ for uploaded_file in uploaded_files:
 
 if len(st.session_state.results_history) > 1:
     st.divider()
-    st.markdown('### 📈 Batch Results Summary')
-    
+    st.markdown('### Batch Results Summary')
     summary_data = []
     for result in st.session_state.results_history:
         row = {
             'Filename': result['filename'],
             'Final Prediction': result.get('final_prediction', 'N/A'),
             'Flagged %': f"{result['flagged_pct']:.1f}%",
+            'Noiseprint': 'On' if result.get('noiseprint_enabled') else 'Off',
             'Timestamp': result['timestamp'][:19],
         }
+        if result.get('noiseprint_summary'):
+            row['Noiseprint Pred'] = result['noiseprint_summary']['prediction']
+            row['Noiseprint Conf'] = f"{result['noiseprint_summary']['confidence_pct']:.1f}%"
+            row['Noise Mean'] = f"{result['noiseprint_summary']['mean_score']:.4f}"
         if result['classification_results']:
             for model_name, clf_result in result['classification_results'].items():
                 row[f"{model_name} (%)"] = f"{clf_result['confidence_pct']:.1f}%"
@@ -747,7 +977,7 @@ if len(st.session_state.results_history) > 1:
     # Export summary as JSON
     json_summary = json.dumps(st.session_state.results_history, indent=2)
     st.download_button(
-        label='📥 Export Results as JSON',
+        label='Export Results as JSON',
         data=json_summary,
         file_name=f'analysis_results_{datetime.now().strftime("%Y%m%d_%H%M%S")}.json',
         mime='application/json'
@@ -759,3 +989,4 @@ st.markdown(
     'AuthentiLens | Powered by Streamlit | Device: ' + str(DEVICE) + '</div>',
     unsafe_allow_html=True
 )
+
