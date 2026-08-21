@@ -1,0 +1,16 @@
+{
+    "best_val_metrics": {
+        "epoch": 15,
+        "val_accuracy": 0.9876,
+        "val_precision": 0.9876006016096257,
+        "val_recall": 0.9875991192845859,
+        "val_f1": 0.9875998209414143
+    },
+    "test_metrics": {
+        "accuracy": 0.9856,
+        "precision": 0.9856070121652556,
+        "recall": 0.9856,
+        "f1": 0.9855999480158124,
+        "loss": 0.05385506963430089
+    }
+}

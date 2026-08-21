@@ -4,15 +4,11 @@
 
 /eval_env
 /IMD2020
-requirements_eval.txt
 test_file.ipynb
 archive/
-checkpoints_resnet/
-checkpoints_efficientnet/
 Archive.zip
 train_deeplab.py
 inference_classifiers.pyArchive.zip
-checkpoints_deeplab/
 *__pycache__/
 inferece_classifiers.py
 sd2-fr-testing/
@@ -21,12 +17,7 @@ sd2-fr-testing-masks/
 masks-sd2_testing.tar.gz
 sd2-patches/
 sd2-classification/
-checkpoints_resnet_sd_1e-4/
-checkpoints_efficientnet_sd_1e-4/
-checkpoints_resnet_sd_2.5e-5/
-checkpoints_efficientnet_sd_2.5e-5/
 sd2_training_package.tar.gz
 patches-fake/
 patches-real/
-checkpoints_unet/
 Archive 2.zip
