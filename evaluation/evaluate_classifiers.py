@@ -11,7 +11,7 @@ import numpy as np
 import sys
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))  # repo root
-from authentilens.paths import CHECKPOINTS, DATA_DIR, RESULTS_DIR
+from authentilens.paths import CHECKPOINTS, DATA_DIR, RESULTS_DIR, is_lfs_pointer
 
 SD2_FR_TEST_DIR = DATA_DIR / "sd2-fr-testing"
 SD2_CLASS_TEST_DIR = DATA_DIR / "sd2-classification" / "test"
@@ -101,6 +101,9 @@ def main():
     for model_name, (ckpt_path, arch) in models_config.items():
         if not os.path.exists(ckpt_path):
             print(f"Warning: {ckpt_path} not found. Skipping {model_name}.")
+            continue
+        if is_lfs_pointer(ckpt_path):
+            print(f"Warning: {ckpt_path} is a Git LFS pointer (run `git lfs pull`). Skipping {model_name}.")
             continue
             
         print(f"\nEvaluating {model_name}...")

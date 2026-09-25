@@ -32,7 +32,7 @@ from tqdm import tqdm
 from torchvision.models import resnet50, efficientnet_b0
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))  # repo root
-from authentilens.paths import CHECKPOINTS, DATA_DIR, RESULTS_DIR, require_segmentation_checkpoint
+from authentilens.paths import CHECKPOINTS, DATA_DIR, RESULTS_DIR, require_segmentation_checkpoint, require_weights
 
 DEVICE = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 MEAN = [0.485, 0.456, 0.406]
@@ -146,13 +146,20 @@ def parse_args():
 
 
 def load_models():
+    # Check every checkpoint up front so a missing file fails fast with a clear message
+    paths = {
+        'ResNet': require_weights(CHECKPOINTS['resnet50_balanced_lr2.5e-5']),
+        'EfficientNet': require_weights(CHECKPOINTS['efficientnet_b0_balanced_lr2.5e-5']),
+        'DeepLabV3Plus': require_segmentation_checkpoint('deeplabv3plus'),
+        'UNet': require_segmentation_checkpoint('unet'),
+    }
     classifiers = {
-        'ResNet': load_resnet(CHECKPOINTS['resnet50_balanced_lr2.5e-5']),
-        'EfficientNet': load_efficientnet(CHECKPOINTS['efficientnet_b0_balanced_lr2.5e-5'])
+        'ResNet': load_resnet(paths['ResNet']),
+        'EfficientNet': load_efficientnet(paths['EfficientNet'])
     }
     segmenters = {
-        'DeepLabV3Plus': load_deeplab(require_segmentation_checkpoint('deeplabv3plus')),
-        'UNet': load_unet(require_segmentation_checkpoint('unet'))
+        'DeepLabV3Plus': load_deeplab(paths['DeepLabV3Plus']),
+        'UNet': load_unet(paths['UNet'])
     }
     return classifiers, segmenters
 

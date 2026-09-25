@@ -82,6 +82,16 @@ def require_segmentation_checkpoint(name: str) -> Path:
             f"Segmentation weights for '{name}' not found. Expected {CHECKPOINTS[name]} "
             f"(see {CHECKPOINTS[name].parent / 'README.md'})."
         )
+    return require_weights(path)
+
+
+def require_weights(path: Path) -> Path:
+    """Exit with a clear message if ``path`` is missing or an un-pulled Git LFS pointer."""
+    path = Path(path)
+    if not path.exists():
+        raise SystemExit(f"Checkpoint not found: {path}")
+    if is_lfs_pointer(path):
+        raise SystemExit(f"{path} is a Git LFS pointer, not the weights. Run `git lfs pull` first.")
     return path
 
 
