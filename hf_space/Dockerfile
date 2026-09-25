@@ -35,7 +35,8 @@ RUN pip install --no-cache-dir --upgrade pip \
 
 COPY --chown=user . .
 
-# Must match app_port in README.md and the port in .streamlit/config.toml.
+# Must match app_port in README.md. The port is set by the CMD flags below,
+# not in .streamlit/config.toml, which Streamlit Community Cloud also reads.
 EXPOSE 7860
 
 HEALTHCHECK --interval=30s --timeout=5s --start-period=120s --retries=5 \
