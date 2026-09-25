@@ -3,7 +3,8 @@
 port = 7860
 address = "0.0.0.0"
 headless = true
-enableCORS = false
+# enableCORS is left at its default: setting it to false conflicts with
+# enableXsrfProtection, which Streamlit keeps on for a publicly reachable app.
 enableXsrfProtection = true
 maxUploadSize = 50
 
