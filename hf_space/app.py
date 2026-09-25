@@ -1,7 +1,12 @@
-"""Entry point for the AuthentiLens Hugging Face Space.
+"""Entry point for the hosted AuthentiLens demo.
 
-The Space runs the repository's own demo. This module only does the two things
-the Space needs on top of it:
+Streamlit Community Cloud runs this file straight from a checkout of the
+repository (``streamlit run hf_space/app.py`` from the repo root, dependencies
+from ``hf_space/requirements.txt``). The Hugging Face Space runs the same file
+from the directory staged by ``hf_space/sync.py``.
+
+Either way it runs the repository's own demo. This module only does the two
+things a hosted copy needs on top of it:
 
 1. Download the weights from the model repo (they are too large for the Space
    repo itself) into the directory ``authentilens.paths`` reads.
@@ -9,6 +14,7 @@ the Space needs on top of it:
    same code as ``streamlit run app/streamlit_app.py`` locally.
 
 The weights are fetched once per container and cached by ``st.cache_resource``.
+The model repo is public, so no token is needed.
 """
 
 import os
@@ -19,6 +25,15 @@ import streamlit as st
 from huggingface_hub import hf_hub_download
 
 HERE = Path(__file__).resolve().parent
+
+# The demo sits next to this file in the staged Space (hf_space/sync.py copies
+# it there) and one level up in a repository checkout (Streamlit Community
+# Cloud).
+DEMO = next(
+    path
+    for path in (HERE / "app" / "streamlit_app.py", HERE.parent / "app" / "streamlit_app.py")
+    if path.exists()
+)
 
 # Which model repo to pull the weights from; overridable so a fork can point at
 # its own copy without editing this file.
@@ -75,10 +90,10 @@ try:
 except Exception as exc:
     st.error(
         f"Could not download the model weights from `{MODEL_REPO}`: {exc}\n\n"
-        "The Space cannot start without them."
+        "The demo cannot start without them."
     )
     st.stop()
 
 # Run the repository's demo. authentilens.paths reads
 # AUTHENTILENS_CHECKPOINT_DIR at import time, which is why it is set above.
-runpy.run_path(str(HERE / "app" / "streamlit_app.py"), run_name="__main__")
+runpy.run_path(str(DEMO), run_name="__main__")

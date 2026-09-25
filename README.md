@@ -2,7 +2,7 @@
 
 **Detects AI-inpainted images and highlights the regions that were edited.** A classifier decides REAL vs FAKE, and a segmentation network localises the inpainted pixels and can overturn the classifier when it misses a partial edit.
 
-**Model weights:** [iamgarvit/authentilens-weights](https://huggingface.co/iamgarvit/authentilens-weights) &nbsp;·&nbsp; **Live demo:** _not deployed yet_ — the Hugging Face Space is built and ready in [`hf_space/`](hf_space/); run it locally with `streamlit run app/streamlit_app.py`.
+**Model weights:** [iamgarvit/authentilens-weights](https://huggingface.co/iamgarvit/authentilens-weights) &nbsp;·&nbsp; **Live demo:** https://authentilens.streamlit.app
 
 ![AuthentiLens demo](docs/images/demo.png)
 
@@ -37,7 +37,7 @@ flowchart LR
 2. **Segmenter** (UNet or DeepLabV3+ with a ResNet-50 encoder) predicts a per-pixel probability that the pixel was inpainted.
 3. **Override:** if the classifier says REAL but more than *X*% of pixels exceed probability 0.7, the pipeline outputs FAKE. We evaluated *X* = 30, 50 and 70; 30% works best.
 
-The FastAPI backend (`services/backend`) implements this rule with **EfficientNet-B0 + DeepLabV3+**, the best combination below. The standalone Streamlit demo (`app/`) defaults to that same pairing at a pixel threshold of 0.7 and a 30% override, and lets you swap in the other models and tune both thresholds. Architectures, checkpoint loading, inference and the decision rule live in `authentilens/models.py`, which the demo, the live Space and this rule's evaluation all share.
+The FastAPI backend (`services/backend`) implements this rule with **EfficientNet-B0 + DeepLabV3+**, the best combination below. The standalone Streamlit demo (`app/`) defaults to that same pairing at a pixel threshold of 0.7 and a 30% override, and lets you swap in the other models and tune both thresholds. Architectures, checkpoint loading, inference and the decision rule live in `authentilens/models.py`, which the local demo, the hosted demo and this rule's evaluation all share.
 
 ## Key finding: fake-only benchmarks hide classifier bias
 
@@ -115,7 +115,7 @@ AuthentiLens/
 ├── services/
 │   ├── backend/          # FastAPI inference API (EfficientNet-B0 + DeepLabV3+ pipeline)
 │   └── frontend/         # Streamlit client for the API
-├── hf_space/             # Hugging Face Docker Space: runs app/ with weights from the Hub
+├── hf_space/             # Hosted demo (Streamlit Community Cloud / HF Space): runs app/ with weights from the Hub
 ├── authentilens/         # Shared code: paths.py (repo-root-relative paths), models.py (pipeline)
 ├── training/             # Classifier training scripts + segmentation notebooks
 ├── evaluation/           # Classifier / segmentation / pipeline / IMD2020 evaluation
@@ -186,22 +186,44 @@ The demo defaults to the pipeline this project evaluated: EfficientNet-B0
 (balanced, lr 2.5e-5) + DeepLabV3+, pixel threshold 0.7, override 30%. Models
 whose weights are not on disk are hidden rather than offered and broken.
 
-### 3b. Deploy the Hugging Face Space
+### 3b. Deploy the hosted demo
 
-[`hf_space/`](hf_space/) is a Docker Space that downloads the weights from the
-model repo at startup and then runs `app/streamlit_app.py` unchanged, so the
-deployed demo is this repository's code rather than a copy. `sync.py` assembles
-the upload directory from `hf_space/` plus `app/` and `authentilens/`.
+The live demo runs on **Streamlit Community Cloud** from this repository.
+[`hf_space/app.py`](hf_space/app.py) downloads the weights anonymously from
+[iamgarvit/authentilens-weights](https://huggingface.co/iamgarvit/authentilens-weights)
+and then runs `app/streamlit_app.py` unchanged, so the deployed demo is this
+repository's code rather than a copy. Only EfficientNet-B0 and DeepLabV3+ are
+loaded at startup; other models load the first time they are selected.
+
+| Streamlit Cloud field | Value |
+| --- | --- |
+| Repository | `iamgarvit/AuthentiLens` |
+| Branch | `main` |
+| Main file path | `hf_space/app.py` |
+| Python version (Advanced settings) | `3.12` |
+
+Community Cloud installs [`hf_space/requirements.txt`](hf_space/requirements.txt)
+(pinned, CPU-only torch) because it sits next to the entrypoint, and reads
+[`.streamlit/config.toml`](.streamlit/config.toml) from the repository root.
+No secrets are needed. To run it the way Community Cloud does:
+
+```bash
+python3.12 -m venv .venv && . .venv/bin/activate
+pip install -r hf_space/requirements.txt
+streamlit run hf_space/app.py                   # from the repository root
+```
+
+**Hugging Face Space (needs PRO).** The same entrypoint also runs as a Docker
+Space; `sync.py` stages `hf_space/` plus `app/` and `authentilens/`, and
+`deploy.py` uploads it. Hugging Face requires a PRO subscription for Docker and
+Gradio Spaces on free `cpu-basic` hardware, so `deploy.py space` fails with HTTP
+402 without one.
 
 ```bash
 hf auth login                                   # a write token
 python hf_space/deploy.py weights --originals-dir /path/to/originals
 python hf_space/deploy.py space
 ```
-
-Hugging Face now requires a **PRO subscription** to host Docker (and Gradio)
-Spaces on free `cpu-basic` hardware; only static Spaces are free. `deploy.py`
-fails with HTTP 402 until the account has one.
 
 ### 4. Data, training and evaluation
 

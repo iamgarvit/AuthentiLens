@@ -66,25 +66,38 @@ if 'results_history' not in st.session_state:
 # MODEL LOADING (cached across reruns)
 # =============================================================================
 
-@st.cache_resource(show_spinner='Loading segmentation models...')
+# Cached per model, not per selection: each network is loaded at most once and
+# only when it is first selected, so a session that sticks to the defaults
+# (EfficientNet-B0 + DeepLabV3+) never holds the other models in memory, and
+# toggling an extra model on and off does not load a second copy.
+
+@st.cache_resource(show_spinner='Loading segmentation model...')
+def load_segmentation_model(label: str):
+    return M.load_segmenter(label, DEVICE)
+
+
+@st.cache_resource(show_spinner='Loading classification model...')
+def load_classifier_model(label: str):
+    return M.load_classifier(label, DEVICE)
+
+
 def load_selected_segmentation_models(selected_model_names: tuple):
     """Load the selected segmenters. Labels without weights are skipped."""
     models = {}
     for label in selected_model_names:
         try:
-            models[label] = M.load_segmenter(label, DEVICE)
+            models[label] = load_segmentation_model(label)
         except FileNotFoundError:
             continue
     return models
 
 
-@st.cache_resource(show_spinner='Loading classification models...')
 def load_selected_classifier_models(selected_model_names: tuple):
     """Load the selected classifiers. Labels without weights are skipped."""
     models = {}
     for label in selected_model_names:
         try:
-            models[label] = M.load_classifier(label, DEVICE)
+            models[label] = load_classifier_model(label)
         except FileNotFoundError:
             continue
     return models
