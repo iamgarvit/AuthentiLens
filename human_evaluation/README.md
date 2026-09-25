@@ -17,7 +17,12 @@ pip install -r requirements.txt
 python setup_registry.py
 ```
 
-This scans both datasets and creates UUID-based registries in `data/`.
+This scans both datasets under the repo's `data/` folder (`data/sd2-fr-testing/` and
+`data/sd2-classification/test/`, or `$AUTHENTILENS_DATA_DIR`) and creates UUID-based
+registries in `human_evaluation/data/`. Image paths are stored relative to the data folder.
+
+> The committed registries and votes are the ones used for the reported results.
+> Re-running `setup_registry.py` generates new UUIDs, so only do it for a fresh study.
 
 ### 3. Run the server
 
@@ -45,8 +50,8 @@ Share the generated public URL with your evaluators.
 
 | Portal | URL | Dataset | Who evaluates |
 |---|---|---|---|
-| Portal A | `/sd2-fr/` | sd2-fr-testing | External evaluators |
-| Portal B | `/custom/` | sd2-classification/test | Developers |
+| Portal A | `/sd2-fr/` | `data/sd2-fr-testing` | External evaluators |
+| Portal B | `/custom/` | `data/sd2-classification/test` | Developers |
 
 ## Admin Stats
 
@@ -67,3 +72,11 @@ While evaluating:
 - Each voter session sees different images to maximize coverage
 - Votes are stored in `results/` as JSON files with per-image granularity
 - Stats include per-image, per-category, and per-label breakdowns
+
+## Reproducing the reported accuracy
+
+```bash
+python human_evaluation/calculate_accuracy.py
+```
+
+Per-image majority vote (ties count as incorrect). Unique voters = unique browser sessions.

@@ -1,23 +1,30 @@
-*.DS_Store
-*.vscode
-*.pycache
+# OS / editors
+.DS_Store
+.vscode/
+.idea/
 
-/eval_env
-/IMD2020
+# Python
+__pycache__/
+*.py[cod]
+.ipynb_checkpoints/
+
+# Virtual environments
+.venv/
+venv/
+env/
+eval_env/
+
+# Datasets live in data/ and are never committed (see data/README.md)
+data/*
+!data/README.md
+
+# Archives (dataset downloads, packaged exports)
+*.zip
+*.tar
+*.tar.gz
+*.tgz
+
+# Scratch notebooks
 test_file.ipynb
-archive/
-Archive.zip
-train_deeplab.py
-inference_classifiers.pyArchive.zip
-*__pycache__/
-inferece_classifiers.py
-sd2-fr-testing/
-sd2-fr_testing.tar.gz
-sd2-fr-testing-masks/
-masks-sd2_testing.tar.gz
-sd2-patches/
-sd2-classification/
-sd2_training_package.tar.gz
-patches-fake/
-patches-real/
-Archive 2.zip
+
+# Note: checkpoints/**/*.pth are tracked with Git LFS (.gitattributes), not ignored.

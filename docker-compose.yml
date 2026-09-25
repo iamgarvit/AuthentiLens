@@ -1,9 +1,14 @@
 # ============================================================================
-# ApertureAuthentiLens — Docker Compose Orchestration
+# AuthentiLens — Docker Compose Orchestration
 # ============================================================================
 # Two-service microservices architecture:
 #   - backend:  FastAPI + PyTorch ML inference engine  (port 8000)
 #   - frontend: Streamlit interactive web UI           (port 8501)
+#
+# Run from the repo root:  docker compose up --build
+# Weights are mounted read-only from ./checkpoints (run `git lfs pull` first).
+# Without checkpoints/segmentation/deeplabv3plus/best_model.pth the backend
+# runs in classification-only mode.
 # ============================================================================
 
 
@@ -13,19 +18,23 @@ services:
   # --------------------------------------------------------------------------
   backend:
     build:
-      context: ./backend
-      dockerfile: Dockerfile
-    container_name: aperture_backend
+      context: .
+      dockerfile: services/backend/Dockerfile
+    container_name: authentilens_backend
     ports:
       - "8000:8000"
     networks:
-      - aperture_net
+      - authentilens_net
     volumes:
-      - ./checkpoints_efficientnet:/app/checkpoints_efficientnet
-      - ./checkpoints_deeplab:/app/checkpoints_deeplab
-      - ./checkpoints_resnet:/app/checkpoints_resnet
+      - ./checkpoints:/app/checkpoints:ro
     environment:
       - PYTHONUNBUFFERED=1
+      - AUTHENTILENS_CHECKPOINT_DIR=/app/checkpoints
+      # Optional overrides (defaults shown):
+      # - AUTHENTILENS_CLASSIFIER_CKPT=/app/checkpoints/classification/efficientnet_b0_balanced_lr2.5e-5/best_model.pth
+      # - AUTHENTILENS_SEGMENTER_CKPT=/app/checkpoints/segmentation/deeplabv3plus/best_model.pth
+      # - AUTHENTILENS_PIXEL_THRESHOLD=0.7
+      # - AUTHENTILENS_OVERRIDE_PCT=30
     # Healthcheck to confirm the API is responsive before frontend connects
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
@@ -39,13 +48,13 @@ services:
   # --------------------------------------------------------------------------
   frontend:
     build:
-      context: ./frontend
+      context: ./services/frontend
       dockerfile: Dockerfile
-    container_name: aperture_frontend
+    container_name: authentilens_frontend
     ports:
       - "8501:8501"
     networks:
-      - aperture_net
+      - authentilens_net
     environment:
       - PYTHONUNBUFFERED=1
       - BACKEND_URL=http://backend:8000
@@ -54,5 +63,5 @@ services:
         condition: service_started
 
 networks:
-  aperture_net:
+  authentilens_net:
     driver: bridge
