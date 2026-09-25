@@ -2,7 +2,7 @@
 
 **Detects AI-inpainted images and highlights the regions that were edited.** A classifier decides REAL vs FAKE, and a segmentation network localises the inpainted pixels and can overturn the classifier when it misses a partial edit.
 
-**Model weights:** [iamgarvit/authentilens-weights](https://huggingface.co/iamgarvit/authentilens-weights) &nbsp;·&nbsp; **Live demo:** https://authentilens.streamlit.app
+**Model weights:** [iamgarvit/authentilens-weights](https://huggingface.co/iamgarvit/authentilens-weights) &nbsp;·&nbsp; **Live demo:** https://aperture-lens.streamlit.app
 
 ![AuthentiLens demo](docs/images/demo.png)
 
