@@ -91,7 +91,7 @@ def require_weights(path: Path) -> Path:
     if not path.exists():
         raise SystemExit(f"Checkpoint not found: {path}")
     if is_lfs_pointer(path):
-        raise SystemExit(f"{path} is a Git LFS pointer, not the weights. Run `git lfs pull` first.")
+        raise SystemExit(f"{path} is a Git LFS pointer, not the weights. See \"Get the weights\" in the README.")
     return path
 
 

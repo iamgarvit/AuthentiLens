@@ -1,0 +1,14 @@
+# Streamlit settings for the demo, run from the repository root: locally with
+# `streamlit run app/streamlit_app.py`, and on Streamlit Community Cloud with
+# the entrypoint hf_space/app.py (Community Cloud only reads the config at the
+# repository root). No port or address here: Community Cloud assigns them.
+# The Hugging Face Space uses hf_space/.streamlit/config.toml instead.
+
+[server]
+maxUploadSize = 50
+
+[browser]
+gatherUsageStats = false
+
+[theme]
+base = "light"

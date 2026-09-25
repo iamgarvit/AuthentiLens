@@ -22,7 +22,7 @@ classifier says REAL but the segmenter flags more than 30% of the pixels, the
 pipeline overrides the call to FAKE — that override is what catches partial
 edits an image-level classifier misses.
 
-Try it in the browser: **[AuthentiLens Space](https://huggingface.co/spaces/iamgarvit/authentilens)**.
+Try it in the browser: **[authentilens.streamlit.app](https://authentilens.streamlit.app)**.
 
 ## Files
 

@@ -92,12 +92,12 @@ class AuthenticDetector:
         if not self.classifier_path.exists():
             raise FileNotFoundError(
                 f"Classifier weights not found at {self.classifier_path}. "
-                "Run `git lfs pull` or set AUTHENTILENS_CLASSIFIER_CKPT."
+                "See \"Get the weights\" in the README, or set AUTHENTILENS_CLASSIFIER_CKPT."
             )
         if is_lfs_pointer(self.classifier_path):
             raise RuntimeError(
                 f"{self.classifier_path} is a Git LFS pointer, not the weights. "
-                "Run `git lfs pull` to download the checkpoint."
+                "See \"Get the weights\" in the README."
             )
         clf_state = torch.load(self.classifier_path, map_location=device)
         if "model_state_dict" in clf_state:
@@ -119,7 +119,7 @@ class AuthenticDetector:
             )
         elif is_lfs_pointer(self.segmenter_path):
             logger.error(
-                f"{self.segmenter_path} is a Git LFS pointer; run `git lfs pull`. "
+                f"{self.segmenter_path} is a Git LFS pointer (see \"Get the weights\" in the README). "
                 "Segmentation disabled: running classification only."
             )
         else:
