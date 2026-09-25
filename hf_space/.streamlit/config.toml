@@ -1,8 +1,12 @@
-# Port must match app_port in README.md and EXPOSE/CMD in the Dockerfile.
+# Streamlit settings for the Hugging Face Space build.
+#
+# No port, address or headless setting here. Streamlit also reads a
+# .streamlit/config.toml from the entrypoint's own directory (hf_space/), and
+# that file wins over the repo root's, so a port here would also apply on
+# Streamlit Community Cloud, which runs hf_space/app.py and health-checks the
+# default port 8501. The Space passes --server.port=7860 and the other server
+# flags on the command line in hf_space/Dockerfile instead.
 [server]
-port = 7860
-address = "0.0.0.0"
-headless = true
 # enableCORS is left at its default: setting it to false conflicts with
 # enableXsrfProtection, which Streamlit keeps on for a publicly reachable app.
 enableXsrfProtection = true
