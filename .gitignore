@@ -28,3 +28,4 @@ data/*
 test_file.ipynb
 
 # Note: checkpoints/**/*.pth are tracked with Git LFS (.gitattributes), not ignored.
+hf_space/.build/

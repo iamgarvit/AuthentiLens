@@ -1,0 +1,14 @@
+# Port must match app_port in README.md and EXPOSE/CMD in the Dockerfile.
+[server]
+port = 7860
+address = "0.0.0.0"
+headless = true
+enableCORS = false
+enableXsrfProtection = true
+maxUploadSize = 50
+
+[browser]
+gatherUsageStats = false
+
+[theme]
+base = "light"
