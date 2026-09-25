@@ -16,12 +16,8 @@ import io
 import os
 import json
 import torch
-import torch.nn as nn
 import numpy as np
 import streamlit as st
-import segmentation_models_pytorch as smp
-import torchvision.transforms.functional as TF
-import torchvision.transforms as T
 import time
 import psutil
 from PIL import Image
@@ -30,7 +26,8 @@ from datetime import datetime
 import sys
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))  # repo root
-from authentilens.paths import CHECKPOINTS, is_lfs_pointer, resolve_segmentation_checkpoint
+sys.path.insert(0, str(Path(__file__).resolve().parent))      # this directory
+from authentilens import models as M
 try:
     import cv2
     from utils_noiseprint import generate_noiseprint_like_from_pil
@@ -41,53 +38,21 @@ except Exception as e:
     generate_noiseprint_like_from_pil = None
     NOISEPRINT_AVAILABLE = False
     NOISEPRINT_IMPORT_ERROR = str(e)
-
 # =============================================================================
 # CONFIG
 # =============================================================================
+# Architectures, checkpoint loading, inference and the pipeline decision rule
+# all live in authentilens/models.py, so this demo, the FastAPI backend and the
+# Hugging Face Space run the same code.
 
-# Segmentation
-SEGMENTATION_IMAGE_SIZE = 512
-SEGMENTATION_MODEL_OPTIONS = {
-    'DeepLabV3Plus (best_model)': {
-        'architecture': 'deeplabv3plus',
-        'checkpoint_key': 'deeplabv3plus',
-    },
-    'UNet (best_model)': {
-        'architecture': 'unet',
-        'checkpoint_key': 'unet',
-    },
-}
+DEVICE = M.get_device()
+CLASS_NAMES = M.CLASS_NAMES
 
-# Classification
-CLASSIFIER_IMAGE_SIZE = 224
-CLASSIFIER_MODEL_OPTIONS = {
-    'ResNet-50 (sd_2.5e-5)': {
-        'architecture': 'resnet50',
-        'checkpoint_path': str(CHECKPOINTS['resnet50_balanced_lr2.5e-5']),
-    },
-    'ResNet-50 (sd_1e-4)': {
-        'architecture': 'resnet50',
-        'checkpoint_path': str(CHECKPOINTS['resnet50_balanced_lr1e-4']),
-    },
-    'EfficientNet-B0 (sd_2.5e-5)': {
-        'architecture': 'efficientnet_b0',
-        'checkpoint_path': str(CHECKPOINTS['efficientnet_b0_balanced_lr2.5e-5']),
-    },
-    'EfficientNet-B0 (sd_1e-4)': {
-        'architecture': 'efficientnet_b0',
-        'checkpoint_path': str(CHECKPOINTS['efficientnet_b0_balanced_lr1e-4']),
-    },
-}
+# Only offer models whose weights are actually on disk. Missing checkpoints and
+# un-pulled Git LFS pointers are hidden rather than listed as broken options.
+AVAILABLE_CLASSIFIERS = M.available_classifiers()
+AVAILABLE_SEGMENTERS = M.available_segmenters()
 
-# Class names for classification
-CLASS_NAMES = {0: "FAKE", 1: "REAL"}
-
-DEVICE = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-
-# ImageNet normalization
-MEAN = [0.485, 0.456, 0.406]
-STD = [0.229, 0.224, 0.225]
 
 # =============================================================================
 # SESSION STATE INITIALIZATION
@@ -98,213 +63,51 @@ if 'results_history' not in st.session_state:
 
 
 # =============================================================================
-# SEGMENTATION MODEL LOADING
+# MODEL LOADING (cached across reruns)
 # =============================================================================
 
 @st.cache_resource(show_spinner='Loading segmentation models...')
 def load_selected_segmentation_models(selected_model_names: tuple):
-    """Load selected segmentation models for inpainting detection."""
+    """Load the selected segmenters. Labels without weights are skipped."""
     models = {}
-
-    for model_name in selected_model_names:
-        cfg = SEGMENTATION_MODEL_OPTIONS.get(model_name)
-        if cfg is None:
+    for label in selected_model_names:
+        try:
+            models[label] = M.load_segmenter(label, DEVICE)
+        except FileNotFoundError:
             continue
-
-        # best_model.pth, or the notebook's original filename as a fallback
-        checkpoint_path = resolve_segmentation_checkpoint(cfg['checkpoint_key'])
-        architecture = cfg['architecture']
-
-        if checkpoint_path is None or is_lfs_pointer(checkpoint_path):
-            continue  # weights not available -> classification-only mode
-
-        if architecture == 'deeplabv3plus':
-            model = smp.DeepLabV3Plus(
-                encoder_name='resnet50',
-                encoder_weights=None,
-                in_channels=3,
-                classes=1,
-                activation=None,
-            )
-            model.decoder.block2 = nn.Sequential(
-                model.decoder.block2,
-                nn.Dropout2d(p=0.3),
-            )
-            ckpt = torch.load(checkpoint_path, map_location=DEVICE)
-            state = ckpt.get('model_state_dict', ckpt)
-
-            # Handle buggy checkpoint variant
-            is_buggy = any(k.startswith('decoder.block.') for k in state.keys())
-            if is_buggy:
-                new_state = {}
-                for k, v in state.items():
-                    if k.startswith('decoder.block.1.'):
-                        suffix = k[len('decoder.block.1.'):]
-                        new_key = f'decoder.block2.0.{suffix}'
-                        new_state[new_key] = v
-                    elif k.startswith('decoder.block.'):
-                        pass
-                    elif k.startswith('decoder.block2.'):
-                        pass
-                    else:
-                        new_state[k] = v
-                state = new_state
-
-            model.load_state_dict(state, strict=True)
-            model.to(DEVICE)
-            model.eval()
-            models[model_name] = model
-
-        elif architecture == 'unet':
-            model = smp.Unet(
-                encoder_name='resnet50',
-                encoder_weights=None,
-                in_channels=3,
-                classes=1,
-                activation=None,
-                decoder_channels=(256, 128, 64, 32, 16),
-                decoder_use_batchnorm=True,
-            )
-
-            dropout_p = 0.3
-            for i, block in enumerate(model.decoder.blocks):
-                n = len(model.decoder.blocks)
-                scaled = dropout_p * (0.4 + 0.6 * i / max(n - 1, 1))
-                block.conv2 = nn.Sequential(
-                    block.conv2,
-                    nn.Dropout2d(p=scaled),
-                )
-
-            ckpt = torch.load(checkpoint_path, map_location=DEVICE)
-            state = ckpt.get('model_state_dict', ckpt)
-            model.load_state_dict(state, strict=True)
-            model.to(DEVICE)
-            model.eval()
-            models[model_name] = model
-
     return models
 
-
-# =============================================================================
-# CLASSIFICATION MODEL LOADING
-# =============================================================================
 
 @st.cache_resource(show_spinner='Loading classification models...')
 def load_selected_classifier_models(selected_model_names: tuple):
-    """Load selected classifier models for image classification."""
-    from torchvision.models import resnet50, efficientnet_b0
-
+    """Load the selected classifiers. Labels without weights are skipped."""
     models = {}
-
-    for model_name in selected_model_names:
-        cfg = CLASSIFIER_MODEL_OPTIONS.get(model_name)
-        if cfg is None:
+    for label in selected_model_names:
+        try:
+            models[label] = M.load_classifier(label, DEVICE)
+        except FileNotFoundError:
             continue
-
-        checkpoint_path = cfg['checkpoint_path']
-        architecture = cfg['architecture']
-
-        if not os.path.exists(checkpoint_path):
-            st.warning(f'{model_name} checkpoint not found: {checkpoint_path}')
-            continue
-        if is_lfs_pointer(checkpoint_path):
-            st.warning(f'{model_name}: {checkpoint_path} is a Git LFS pointer. Run `git lfs pull` to download it.')
-            continue
-
-        if architecture == 'resnet50':
-            model = resnet50(pretrained=False)
-            model.fc = nn.Sequential(
-                nn.Dropout(0.3),
-                nn.Linear(model.fc.in_features, 2)
-            )
-        elif architecture == 'efficientnet_b0':
-            model = efficientnet_b0(pretrained=False)
-            num_ftrs = model.classifier[1].in_features
-            model.classifier[1] = nn.Linear(num_ftrs, 2)
-        else:
-            continue
-
-        model.load_state_dict(torch.load(checkpoint_path, map_location=DEVICE))
-        model.to(DEVICE)
-        model.eval()
-        models[model_name] = model
-
     return models
 
 
 # =============================================================================
-# SEGMENTATION INFERENCE
+# INFERENCE
 # =============================================================================
 
 def run_segmentation_inference(model, pil_image: Image.Image, threshold: float) -> tuple:
-    """
-    Returns:
-        prob_map   : float32 numpy array [H, W] in [0, 1]
-        binary_map : uint8 numpy array [H, W] in {0, 1}
-    """
-    orig_w, orig_h = pil_image.size
+    """Returns (prob_map [H, W] float32 in [0, 1], binary_map [H, W] uint8, flagged %)."""
+    return M.segment(model, pil_image, threshold, DEVICE)
 
-    img_r = pil_image.resize((SEGMENTATION_IMAGE_SIZE, SEGMENTATION_IMAGE_SIZE), Image.BILINEAR)
-    t = TF.to_tensor(img_r)
-    t = TF.normalize(t, mean=MEAN, std=STD).unsqueeze(0).to(DEVICE)
-
-    with torch.no_grad():
-        with torch.cuda.amp.autocast(enabled=(DEVICE.type == 'cuda')):
-            logit = model(t)
-
-    prob = torch.sigmoid(logit).squeeze().cpu().float().numpy()
-
-    prob_pil = Image.fromarray((prob * 255).astype(np.uint8)).resize(
-        (orig_w, orig_h), Image.BILINEAR
-    )
-    prob_orig = np.array(prob_pil, dtype=np.float32) / 255.0
-
-    binary = (prob_orig > threshold).astype(np.uint8)
-    return prob_orig, binary
-
-
-# =============================================================================
-# CLASSIFICATION INFERENCE
-# =============================================================================
 
 def run_classification_inference(models: dict, pil_image: Image.Image) -> dict:
-    """
-    Run classification on image with all available classifiers.
-    
-    Returns:
-        dict with classification results per model
-    """
-    transform = T.Compose([
-        T.Resize((CLASSIFIER_IMAGE_SIZE, CLASSIFIER_IMAGE_SIZE)),
-        T.ToTensor(),
-        T.Normalize(mean=MEAN, std=STD)
-    ])
-
-    image_tensor = transform(pil_image).unsqueeze(0).to(DEVICE)
+    """Run every loaded classifier on the image and time each one."""
     results = {}
-
-    with torch.no_grad():
-        for model_name, model in models.items():
-            start_t = time.time()
-            output = model(image_tensor)
-            probabilities = torch.softmax(output, dim=1)[0]
-            confidence, predicted_idx = torch.max(probabilities, dim=0)
-
-            pred_class = CLASS_NAMES.get(predicted_idx.item(), f"Class {predicted_idx.item()}")
-            conf_value = confidence.item()
-            exec_time = time.time() - start_t
-
-            results[model_name] = {
-                'class': pred_class,
-                'confidence': conf_value,
-                'confidence_pct': conf_value * 100,
-                'inference_time': exec_time,
-                'probabilities': {
-                    CLASS_NAMES[0]: float(probabilities[0].item()) * 100,
-                    CLASS_NAMES[1]: float(probabilities[1].item()) * 100,
-                }
-            }
-
+    for model_name, model in models.items():
+        start_t = time.time()
+        result = M.classify(model, pil_image, DEVICE)
+        result['inference_time'] = time.time() - start_t
+        result['confidence'] = result['confidence_pct'] / 100.0
+        results[model_name] = result
     return results
 
 
@@ -464,73 +267,120 @@ st.markdown("""
 
 st.title('AuthentiLens')
 st.markdown(
-    '**Analyze images** using segmentation (detect inpainted regions) and classification (overall category prediction).'
+    '**Detects AI-inpainted images and highlights the regions that were edited.** '
+    'A classifier decides FAKE vs REAL, and a segmentation network localises the '
+    'inpainted pixels and can overturn the classifier when it misses a partial edit.'
+)
+
+st.info(
+    '**Scope.** AuthentiLens targets **diffusion inpainting on photoreal images** '
+    '(Stable Diffusion 2 / SDXL edits of real photos). It is not trained for GAN '
+    'images, fully synthetic images or artwork, and will not be reliable on them. '
+    'The pipeline was evaluated on a fake-only test set, so its **false-positive '
+    'rate on real photos has not been measured yet** — treat every result as '
+    'indicative, not as proof.',
+    icon=':material/info:',
 )
 
 # =============================================================================
 # SIDEBAR
 # =============================================================================
 
+if not AVAILABLE_CLASSIFIERS:
+    st.error(
+        'No classifier weights found. Run `git lfs pull` (see the README) so that '
+        'at least one checkpoint under `checkpoints/classification/` is available.'
+    )
+    st.stop()
+
 with st.sidebar:
-    st.header('Settings')
-
-    st.subheader('Model Selection')
-    selected_classifier_names = st.multiselect(
-        'Classification models',
-        options=list(CLASSIFIER_MODEL_OPTIONS.keys()),
-        default=[
-            'ResNet-50 (sd_2.5e-5)',
-            'EfficientNet-B0 (sd_2.5e-5)',
-        ],
-        help='Choose one or more classifier checkpoints to test on uploaded images.'
-    )
-    selected_segmentation_names = st.multiselect(
-        'Segmentation models',
-        options=list(SEGMENTATION_MODEL_OPTIONS.keys()),
-        default=list(SEGMENTATION_MODEL_OPTIONS.keys()),
-        help='Choose one or more segmentation checkpoints for tamper-region visualization.'
+    st.header('Pipeline')
+    st.caption(
+        'Default: the best combination in `results/pipeline/` — EfficientNet-B0 '
+        '(balanced, lr 2.5e-5) + DeepLabV3+, pixel threshold 0.7, override 30%. '
+        'That pairing reached 96.7% combined TPR on the SD2-FR test set.'
     )
 
-    st.subheader('Additional Model')
+    primary_classifier = st.selectbox(
+        'Classifier',
+        options=AVAILABLE_CLASSIFIERS,
+        index=AVAILABLE_CLASSIFIERS.index(M.DEFAULT_CLASSIFIER)
+        if M.DEFAULT_CLASSIFIER in AVAILABLE_CLASSIFIERS else 0,
+        help='Decides FAKE vs REAL on the whole image, resized to 224x224.',
+    )
+
+    segmenter_options = ['None (classification only)'] + AVAILABLE_SEGMENTERS
+    primary_segmenter = st.selectbox(
+        'Segmenter',
+        options=segmenter_options,
+        index=segmenter_options.index(M.DEFAULT_SEGMENTER)
+        if M.DEFAULT_SEGMENTER in segmenter_options else 0,
+        help='Predicts P(inpainted) per pixel at 512x512 and can override a REAL call.',
+    )
+    if primary_segmenter == 'None (classification only)':
+        primary_segmenter = None
+
+    threshold = st.slider(
+        'Pixel threshold',
+        min_value=0.10, max_value=0.90, value=M.PIXEL_THRESHOLD, step=0.05,
+        help='A pixel counts as inpainted when P(inpainted) is above this value.',
+    )
+
+    override_pct = st.slider(
+        'Override if flagged area > (%)',
+        min_value=0.0, max_value=100.0, value=M.OVERRIDE_PCT, step=5.0,
+        help='When the classifier says REAL but more than this share of pixels is '
+             'flagged, the pipeline outputs FAKE.',
+    )
+
+    st.divider()
+    st.subheader('Compare with other models')
+    extra_classifiers = st.multiselect(
+        'Additional classifiers',
+        options=[c for c in AVAILABLE_CLASSIFIERS if c != primary_classifier],
+        default=[],
+        help='Shown alongside the pipeline decision; they do not change it.',
+    )
+    extra_segmenters = st.multiselect(
+        'Additional segmenters',
+        options=[s for s in AVAILABLE_SEGMENTERS if s != primary_segmenter],
+        default=[],
+        help='Shown alongside the pipeline decision; they do not change it.',
+    )
+
+    hidden_classifiers = [c for c in M.CLASSIFIER_MODELS if c not in AVAILABLE_CLASSIFIERS]
+    hidden_segmenters = [s for s in M.SEGMENTATION_MODELS if s not in AVAILABLE_SEGMENTERS]
+    if hidden_classifiers or hidden_segmenters:
+        with st.expander('Models without weights on this machine'):
+            for name in hidden_classifiers + hidden_segmenters:
+                st.caption(f'- {name}')
+            st.caption('Fetch them with `git lfs pull`, then reload this page.')
+
+    st.divider()
+    st.subheader('Additional analysis')
     run_noiseprint_model = st.checkbox(
         'Run Noiseprint model',
-        value=NOISEPRINT_AVAILABLE,
+        value=False,
         disabled=not NOISEPRINT_AVAILABLE,
-        help='Runs a separate Noiseprint-like residual analysis after classification and segmentation.'
+        help='A separate Noiseprint-like residual analysis. Not part of the '
+             'evaluated pipeline and not benchmarked.',
     )
     noiseprint_fake_threshold = st.slider(
         'Noiseprint FAKE threshold',
-        min_value=0.05,
-        max_value=0.50,
-        value=0.18,
-        step=0.01,
-        help='If Noiseprint score is above this value, prediction is FAKE.'
+        min_value=0.05, max_value=0.50, value=0.18, step=0.01,
+        disabled=not NOISEPRINT_AVAILABLE,
+        help='If the Noiseprint score is above this value, its prediction is FAKE.',
     )
     if not NOISEPRINT_AVAILABLE:
         st.caption(f'Noiseprint unavailable: {NOISEPRINT_IMPORT_ERROR}')
 
     st.divider()
-
-    heuristic_threshold = st.slider(
-        'Heuristic Threshold (%)',
-        min_value=0.0, max_value=50.0, value=10.0, step=0.5,
-        help='If classifiers conflict, predict FAKE if average segmentation flags > this % of pixels.'
-    )
-
-    threshold = st.slider(
-        'Segmentation threshold',
-        min_value=0.10, max_value=0.90, value=0.70, step=0.05,
-        help='Pixels above this probability are flagged as inpainted.'
-    )
-
+    st.subheader('Display')
     opacity = st.slider(
         'Heatmap opacity',
         min_value=0.20, max_value=1.00, value=0.6, step=0.05,
-        help='Heatmap blend intensity.'
+        help='Heatmap blend intensity.',
     )
-
-    st.divider()
-
     show_seg_raw = st.checkbox('Show segmentation probability map', value=True)
     show_seg_binary = st.checkbox('Show segmentation binary mask', value=True)
     show_seg_stats = st.checkbox('Show segmentation statistics', value=True)
@@ -538,36 +388,23 @@ with st.sidebar:
 
     st.divider()
     st.markdown(f'**Device:** `{DEVICE}`')
-    st.markdown(
-        f'**Selected:** {len(selected_segmentation_names)} segmentation, '
-        f'{len(selected_classifier_names)} classification, '
-        f'Noiseprint {"On" if run_noiseprint_model else "Off"}'
-    )
-
-    st.divider()
     st.markdown("""
-**Segmentation color legend**
+**Heatmap legend**
 
-Green = Low inpainting probability
-Yellow = High inpainting probability
-Transparent = Below threshold
+Blue/green = low inpainting probability
+Yellow/red = high inpainting probability
+Transparent = below threshold
     """)
+
+selected_classifier_names = [primary_classifier] + extra_classifiers
+selected_segmentation_names = ([primary_segmenter] if primary_segmenter else []) + extra_segmenters
+
 # =============================================================================
 # MODEL LOADING
 # =============================================================================
 
 try:
     seg_models = load_selected_segmentation_models(tuple(selected_segmentation_names))
-    if seg_models:
-        st.sidebar.success(f'Segmentation models loaded ({len(seg_models)})')
-    else:
-        st.sidebar.warning('No segmentation model selected/available')
-    missing_seg = [n for n in selected_segmentation_names if n not in seg_models]
-    for name in missing_seg:
-        key = SEGMENTATION_MODEL_OPTIONS[name]['checkpoint_key']
-        st.sidebar.caption(f'{name}: weights not found at `{CHECKPOINTS[key]}`')
-    if selected_segmentation_names and not seg_models:
-        st.warning('Segmentation model not loaded — showing classification only')
 except Exception as e:
     st.error(f'Failed to load segmentation models: {e}')
     st.stop()
@@ -575,15 +412,29 @@ except Exception as e:
 try:
     classifier_models = load_selected_classifier_models(tuple(selected_classifier_names))
     st.session_state.classifier_models = classifier_models
-    if classifier_models:
-        st.sidebar.success(f'Classification models loaded ({len(classifier_models)})')
-    else:
-        st.sidebar.warning('No classification model selected/available')
 except Exception as e:
     st.error(f'Failed to load classification models: {e}')
     st.stop()
 
-# =============================================================================
+if not classifier_models:
+    st.error(f'Could not load the classifier "{primary_classifier}".')
+    st.stop()
+
+if primary_segmenter and primary_segmenter not in seg_models:
+    st.warning(
+        f'Could not load the segmenter "{primary_segmenter}" — running in '
+        'classification-only mode, with no localisation and no override.'
+    )
+    primary_segmenter = None
+elif not primary_segmenter:
+    st.warning(
+        'No segmenter selected: running in classification-only mode, with no '
+        'localisation and no override.'
+    )
+
+st.sidebar.success(
+    f'Loaded {len(classifier_models)} classifier(s) and {len(seg_models)} segmenter(s)'
+)
 # FILE UPLOADER
 # =============================================================================
 
@@ -620,14 +471,14 @@ for uploaded_file in uploaded_files:
             segmentation_results = {}
             for name, model in seg_models.items():
                 m_start = time.time()
-                prob_map, binary_map = run_segmentation_inference(model, pil_image, threshold)
+                prob_map, binary_map, flagged_pct = run_segmentation_inference(model, pil_image, threshold)
                 overlay = make_overlay(pil_image, prob_map, opacity, threshold)
                 m_time = time.time() - m_start
                 segmentation_results[name] = {
                     'prob_map': prob_map,
                     'binary_map': binary_map,
                     'overlay': overlay,
-                    'flagged_pct': float(binary_map.mean()) * 100,
+                    'flagged_pct': flagged_pct,
                     'inference_time': m_time
                 }
 
@@ -674,58 +525,34 @@ for uploaded_file in uploaded_files:
             except:
                 pass
 
-        # --- FINAL HEURISTIC DECISION ---
-        mean_flagged_pct = 0.0
-        if segmentation_results:
-            mean_flagged_pct = sum(res['flagged_pct'] for res in segmentation_results.values()) / len(segmentation_results)
-            
-        final_prediction = ""
-        heuristic_reason = ""
-        if classification_results:
-            fake_votes = sum(1 for r in classification_results.values() if r['class'] == 'FAKE')
-            real_votes = sum(1 for r in classification_results.values() if r['class'] == 'REAL')
+        # --- PIPELINE DECISION (evaluation/evaluate_pipeline.py rule) ---
+        # The primary classifier decides; the primary segmenter can override a
+        # REAL call to FAKE when it flags more than override_pct % of pixels.
+        primary_clf_result = classification_results[primary_classifier]
+        primary_flagged_pct = (
+            segmentation_results[primary_segmenter]['flagged_pct']
+            if primary_segmenter in segmentation_results else None
+        )
 
-            if fake_votes > real_votes:
-                final_prediction = 'FAKE'
-                heuristic_reason = f'Majority vote from classifiers: {fake_votes} FAKE vs {real_votes} REAL.'
-            elif real_votes > fake_votes:
-                final_prediction = 'REAL'
-                heuristic_reason = f'Majority vote from classifiers: {real_votes} REAL vs {fake_votes} FAKE.'
-            else:
-                # Tie-break with segmentation when available
-                if segmentation_results:
-                    if mean_flagged_pct > heuristic_threshold:
-                        final_prediction = 'FAKE'
-                        heuristic_reason = (
-                            f'Classifier tie ({fake_votes}-{real_votes}). '
-                            f'Segmentation averaged {mean_flagged_pct:.2f}% flagged pixels (> {heuristic_threshold}%), so FAKE.'
-                        )
-                    else:
-                        final_prediction = 'REAL'
-                        heuristic_reason = (
-                            f'Classifier tie ({fake_votes}-{real_votes}). '
-                            f'Segmentation averaged {mean_flagged_pct:.2f}% flagged pixels (<= {heuristic_threshold}%), so REAL.'
-                        )
-                else:
-                    avg_fake_prob = float(np.mean([r['probabilities']['FAKE'] for r in classification_results.values()]))
-                    final_prediction = 'FAKE' if avg_fake_prob >= 50.0 else 'REAL'
-                    heuristic_reason = (
-                        f'Classifier tie ({fake_votes}-{real_votes}) without segmentation. '
-                        f'Average FAKE confidence={avg_fake_prob:.2f}%, so {final_prediction}.'
-                    )
-        elif segmentation_results:
-            final_prediction = 'FAKE' if mean_flagged_pct > heuristic_threshold else 'REAL'
-            comparator = '>' if mean_flagged_pct > heuristic_threshold else '<='
-            heuristic_reason = (
-                f'No classifier selected. Segmentation averaged {mean_flagged_pct:.2f}% flagged pixels '
-                f'({comparator} {heuristic_threshold}%), so {final_prediction}.'
-            )
-        
+        decision = M.pipeline_decision(
+            primary_clf_result['is_fake'], primary_flagged_pct, override_pct
+        )
+        final_prediction = decision['prediction']
+        heuristic_reason = decision['reason']
+
+        mean_flagged_pct = (
+            sum(r['flagged_pct'] for r in segmentation_results.values()) / len(segmentation_results)
+            if segmentation_results else 0.0
+        )
+
         # Store results in session history
         result_entry = {
             'filename': uploaded_file.name,
             'timestamp': datetime.now().isoformat(),
-            'threshold': threshold,
+            'pixel_threshold': threshold,
+            'override_pct': override_pct,
+            'pipeline_classifier': primary_classifier,
+            'pipeline_segmenter': primary_segmenter,
             'selected_classifier_models': list(classifier_models.keys()),
             'selected_segmentation_models': list(seg_models.keys()),
             'noiseprint_enabled': bool(run_noiseprint_model and NOISEPRINT_AVAILABLE),
@@ -740,27 +567,36 @@ for uploaded_file in uploaded_files:
                 'confidence_pct': noiseprint_results['confidence_pct'],
                 'inference_time': noiseprint_results['inference_time'],
             } if noiseprint_results else None,
-            'flagged_pct': mean_flagged_pct,
+            'flagged_pct': primary_flagged_pct if primary_flagged_pct is not None else mean_flagged_pct,
             'classification_results': classification_results,
             'final_prediction': final_prediction,
-            'heuristic_reason': heuristic_reason
+            'decision_source': decision['decision_source'],
+            'heuristic_reason': heuristic_reason,
         }
         st.session_state.results_history.append(result_entry)
-        
+
         # --- DISPLAY FINAL DECISION ---
-        if final_prediction:
-            st.markdown('### Final Prediction (Heuristic)')
-            decision_color = "#ff4b4b" if final_prediction == "FAKE" else "#00d084"
-            st.markdown(f"""
-            <div style="background: #f0f2f6; padding: 1.5rem; border-radius: 10px; border-left: 6px solid {decision_color}; margin-bottom: 1rem;">
-                <div style="font-size: 2rem; font-weight: bold; color: {decision_color}; margin-bottom: 0.5rem;">
-                    {final_prediction}
-                </div>
-                <div style="font-size: 1.1rem; color: #444;">
-                    {heuristic_reason}
-                </div>
+        st.markdown('### Pipeline verdict')
+        decision_color = "#ff4b4b" if final_prediction == "FAKE" else "#00d084"
+        pipeline_desc = primary_classifier + (f' + {primary_segmenter}' if primary_segmenter else ' (classification only)')
+        badge = (
+            'segmentation override' if decision['decision_source'] == 'segmentation_override'
+            else 'classifier'
+        )
+        st.markdown(f"""
+        <div style="background: #f0f2f6; padding: 1.5rem; border-radius: 10px; border-left: 6px solid {decision_color}; margin-bottom: 1rem;">
+            <div style="font-size: 2rem; font-weight: bold; color: {decision_color}; margin-bottom: 0.5rem;">
+                {final_prediction}
             </div>
-            """, unsafe_allow_html=True)
+            <div style="font-size: 1.1rem; color: #444;">
+                {heuristic_reason}
+            </div>
+            <div style="font-size: 0.85rem; color: #666; margin-top: 0.75rem;">
+                {pipeline_desc} &middot; pixel threshold {threshold:.2f} &middot;
+                override &gt; {override_pct:g}% &middot; decided by: {badge}
+            </div>
+        </div>
+        """, unsafe_allow_html=True)
 
         # --- CLASSIFICATION RESULTS ---
         if classification_results:
