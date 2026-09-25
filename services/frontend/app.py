@@ -37,6 +37,10 @@ if uploaded_file is not None:
     total_time = result.get("total_time", 0.0)
     cuda_alloc_mb = result.get("cuda_alloc_mb", 0.0)
     cuda_res_mb = result.get("cuda_res_mb", 0.0)
+    flagged_pct = result.get("flagged_pct")
+
+    if not result.get("segmentation_available", True):
+        st.info("Segmentation model not loaded — showing classification only")
 
     if not is_fake:
         st.success(f"✅ Image is NOT FAKE! (Confidence it's real: {(1-fake_prob)*100:.1f}%)")
@@ -45,6 +49,9 @@ if uploaded_file is not None:
             st.image(original_rgb, use_container_width=True)
     else:
         st.warning(f"🚨 Image is FAKE! (Confidence: {fake_prob*100:.1f}%)")
+        if result.get("decision_source") == "segmentation_override":
+            st.caption(f"The classifier predicted REAL, but segmentation flagged {flagged_pct:.1f}% of pixels "
+                       "as inpainted, so the pipeline overrides the verdict to FAKE.")
         col1, col2 = st.columns(2)
         with col1:
             st.image(original_rgb, caption="Original Image", use_container_width=True)

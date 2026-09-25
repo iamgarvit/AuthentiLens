@@ -1,0 +1,7 @@
+# The backend image builds from the repo root (docker-compose.yml) but only
+# needs these paths. Everything else (checkpoints, data, .git) stays out of the
+# build context; checkpoints are mounted at runtime instead.
+**
+!authentilens/
+!services/backend/
+**/__pycache__

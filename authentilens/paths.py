@@ -85,6 +85,15 @@ def require_segmentation_checkpoint(name: str) -> Path:
     return path
 
 
+def is_lfs_pointer(path: Path) -> bool:
+    """True if ``path`` is an un-downloaded Git LFS pointer rather than real weights."""
+    path = Path(path)
+    if not path.is_file() or path.stat().st_size > 1024:
+        return False
+    with open(path, "rb") as f:
+        return f.read(40).startswith(b"version https://git-lfs.github.com/spec")
+
+
 def lr_tag(lr: float) -> str:
     """Format a learning rate for folder names: 2.5e-5 -> '2.5e-5', 1e-4 -> '1e-4'."""
     mantissa, exponent = f"{lr:e}".split("e")

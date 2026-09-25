@@ -1,6 +1,6 @@
 import logging
 from contextlib import asynccontextmanager
-from typing import List
+from typing import List, Optional
 import cv2
 import numpy as np
 import torch
@@ -9,7 +9,7 @@ from pydantic import BaseModel, Field
 
 from inference import AuthenticDetector, get_device
 
-logger = logging.getLogger("aperture.api")
+logger = logging.getLogger("authentilens.api")
 logging.basicConfig(level=logging.INFO)
 
 class AnalysisResult(BaseModel):
@@ -21,6 +21,11 @@ class AnalysisResult(BaseModel):
     total_time: float = Field(...)
     cuda_alloc_mb: float = 0.0
     cuda_res_mb: float = 0.0
+    # % of pixels above the segmentation threshold (None if segmentation is unavailable)
+    flagged_pct: Optional[float] = None
+    # "classifier" or "segmentation_override" (classifier said REAL, segmentation flagged it)
+    decision_source: str = "classifier"
+    segmentation_available: bool = False
 
 _device = None
 _detector = None
@@ -36,11 +41,17 @@ async def lifespan(app: FastAPI):
     # Shutdown
     logger.info("Shutting down...")
 
-app = FastAPI(title="ApertureAuthentiLens API", lifespan=lifespan)
+app = FastAPI(title="AuthentiLens API", lifespan=lifespan)
 
 @app.get("/health")
 async def health_check():
-    return {"status": "healthy"}
+    if _detector is None:
+        return {"status": "loading"}
+    return {
+        "status": "healthy",
+        "classifier_checkpoint": str(_detector.classifier_path),
+        "segmentation_loaded": _detector.segmentation_available,
+    }
 
 @app.post("/analyze", response_model=AnalysisResult)
 async def analyze_image(file: UploadFile = File(...)):
@@ -55,14 +66,4 @@ async def analyze_image(file: UploadFile = File(...)):
 
     img_rgb = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2RGB)
     
-    is_fake, fake_prob, mask, clf_time, seg_time, total_time, cuda_alloc_mb, cuda_res_mb = _detector.analyze(img_rgb)
-    return AnalysisResult(
-        is_fake=is_fake, 
-        fake_prob=fake_prob, 
-        mask=mask,
-        clf_time=clf_time,
-        seg_time=seg_time,
-        total_time=total_time,
-        cuda_alloc_mb=cuda_alloc_mb,
-        cuda_res_mb=cuda_res_mb
-    )
+    return AnalysisResult(**_detector.analyze(img_rgb))

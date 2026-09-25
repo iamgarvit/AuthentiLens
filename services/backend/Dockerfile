@@ -1,8 +1,12 @@
 # ============================================================================
-# ApertureAuthentiLens — Backend Dockerfile
+# AuthentiLens — Backend Dockerfile
 # ============================================================================
-# Python 3.10 slim image with PyTorch (CPU), FastAPI, Uvicorn, OpenCV,
-# HuggingFace Transformers (for CLIP), and supporting libraries.
+# Python 3.10 slim image with PyTorch, segmentation-models-pytorch, FastAPI,
+# Uvicorn and OpenCV.
+#
+# Build context is the REPO ROOT (see docker-compose.yml) so the shared
+# authentilens/ package can be copied in. Checkpoints are NOT baked into the
+# image; docker-compose mounts ./checkpoints at /app/checkpoints.
 # ============================================================================
 
 FROM python:3.10-slim
@@ -17,11 +21,16 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 WORKDIR /app
 
 # Copy and install Python dependencies first (layer caching)
-COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+COPY services/backend/requirements.txt services/backend/requirements.txt
+RUN pip install --no-cache-dir -r services/backend/requirements.txt
 
-# Copy application source code
-COPY . .
+# Copy application source code (same layout as the repo)
+COPY authentilens/ authentilens/
+COPY services/backend/ services/backend/
+
+ENV PYTHONPATH=/app \
+    AUTHENTILENS_CHECKPOINT_DIR=/app/checkpoints
+WORKDIR /app/services/backend
 
 # Expose the FastAPI server port
 EXPOSE 8000

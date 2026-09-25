@@ -30,7 +30,7 @@ from datetime import datetime
 import sys
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))  # repo root
-from authentilens.paths import CHECKPOINTS, resolve_segmentation_checkpoint
+from authentilens.paths import CHECKPOINTS, is_lfs_pointer, resolve_segmentation_checkpoint
 try:
     import cv2
     from utils_noiseprint import generate_noiseprint_like_from_pil
@@ -115,7 +115,7 @@ def load_selected_segmentation_models(selected_model_names: tuple):
         checkpoint_path = resolve_segmentation_checkpoint(cfg['checkpoint_key'])
         architecture = cfg['architecture']
 
-        if checkpoint_path is None:
+        if checkpoint_path is None or is_lfs_pointer(checkpoint_path):
             continue  # weights not available -> classification-only mode
 
         if architecture == 'deeplabv3plus':
@@ -206,6 +206,9 @@ def load_selected_classifier_models(selected_model_names: tuple):
 
         if not os.path.exists(checkpoint_path):
             st.warning(f'{model_name} checkpoint not found: {checkpoint_path}')
+            continue
+        if is_lfs_pointer(checkpoint_path):
+            st.warning(f'{model_name}: {checkpoint_path} is a Git LFS pointer. Run `git lfs pull` to download it.')
             continue
 
         if architecture == 'resnet50':

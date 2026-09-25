@@ -1,5 +1,5 @@
 # ============================================================================
-# ApertureAuthentiLens — Frontend Dockerfile
+# AuthentiLens — Frontend Dockerfile
 # ============================================================================
 # Python 3.10 slim image with Streamlit, Requests, Matplotlib, and OpenCV.
 # ============================================================================
