@@ -25,9 +25,34 @@ the notebook's own threshold. It is not comparable to the 16.76% mIoU in
 [`results/segmentation`](../../../results/segmentation/segmentation_only_results.json),
 which is measured on the SD2-FR **test** images at a pixel threshold of 0.7.
 
-Also published at
-[iamgarvit/authentilens-weights](https://huggingface.co/iamgarvit/authentilens-weights)
-as `segmentation/deeplabv3plus/best_model.pth`.
+## Getting the file
+
+A fresh clone has only a small Git LFS pointer here:
+[`.lfsconfig`](../../../.lfsconfig) excludes `checkpoints/` from LFS fetches. The
+default source is the Hugging Face model repo
+[iamgarvit/authentilens-weights](https://huggingface.co/iamgarvit/authentilens-weights),
+where this file is `segmentation/deeplabv3plus/best_model.pth`, byte-identical to the
+Git LFS copy (same sha256). From the repo root:
+
+```bash
+# default pipeline (EfficientNet-B0 balanced lr 2.5e-5 + DeepLabV3+) and the UNet, about 250 MB
+hf download iamgarvit/authentilens-weights --local-dir checkpoints \
+    --include "classification/*" --include "segmentation/*"
+```
+
+To use the Git LFS copies instead, override the exclusion with `--exclude=""`.
+Git LFS also holds the ResNet-50 and other EfficientNet-B0 checkpoints, which are
+not on the Hub:
+
+```bash
+git lfs install
+git lfs pull --include="checkpoints/**" --exclude=""     # everything, ~900 MB
+# or only the default pipeline:
+git lfs pull --include="checkpoints/classification/efficientnet_b0_balanced_lr2.5e-5/best_model.pth,checkpoints/segmentation/deeplabv3plus/best_model.pth" --exclude=""
+```
+
+Set `AUTHENTILENS_CHECKPOINT_DIR` to read the weights from somewhere other than
+`checkpoints/`.
 
 ## Source and how it was made
 
