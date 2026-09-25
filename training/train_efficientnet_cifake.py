@@ -10,12 +10,17 @@ from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_sc
 from tqdm import tqdm
 from PIL import Image
 
+import sys
+from pathlib import Path
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))  # repo root
+from authentilens.paths import DATA_DIR, CLASSIFICATION_CKPT_DIR
+
 # ==========================================
 # CONFIGURATION
 # ==========================================
 CONFIG = {
-    'data_dir': './archive',  
-    'save_dir': './checkpoints_efficientnet',
+    'data_dir': str(DATA_DIR / 'cifake'),  # CIFAKE: train/ and test/ with FAKE/ and REAL/
+    'save_dir': str(CLASSIFICATION_CKPT_DIR / 'efficientnet_b0_cifake'),
     'epochs': 15,
     'batch_size': 256,      
     'num_workers': 8,       

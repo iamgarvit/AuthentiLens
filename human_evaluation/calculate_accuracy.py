@@ -1,5 +1,6 @@
 import json
 import os
+from pathlib import Path
 
 def check_accuracy(registry_file, votes_file):
     with open(registry_file, 'r') as f:
@@ -71,7 +72,7 @@ def check_accuracy(registry_file, votes_file):
     print()
 
 if __name__ == "__main__":
-    base_dir = "/Users/garvit/Documents/Garvit/codes/cv_project/human_evaluation"
+    base_dir = Path(__file__).resolve().parent
     
     print("--- CUSTOM DATASET ---")
     check_accuracy(f"{base_dir}/data/custom_registry.json", f"{base_dir}/results/custom_votes.json")

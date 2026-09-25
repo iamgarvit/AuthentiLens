@@ -8,6 +8,14 @@ from torchvision.models import resnet50, efficientnet_b0
 from PIL import Image
 from tqdm import tqdm
 import numpy as np
+import sys
+from pathlib import Path
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))  # repo root
+from authentilens.paths import CHECKPOINTS, DATA_DIR, RESULTS_DIR
+
+SD2_FR_TEST_DIR = DATA_DIR / "sd2-fr-testing"
+SD2_CLASS_TEST_DIR = DATA_DIR / "sd2-classification" / "test"
+OUTPUT_PATH = RESULTS_DIR / "classification" / "comprehensive_evaluation_results.json"
 
 def create_resnet(device):
     model = resnet50(pretrained=False)
@@ -72,18 +80,18 @@ def main():
     ])
 
     models_config = {
-        "ResNet_CIFake": ("checkpoints_resnet/best_model.pth", "resnet"),
-        "ResNet_SD_1e-4": ("checkpoints_resnet_sd_1e-4/best_model.pth", "resnet"),
-        "ResNet_SD_2.5e-5": ("checkpoints_resnet_sd_2.5e-5/best_model.pth", "resnet"),
-        "EfficientNet_CIFake": ("checkpoints_efficientnet/best_model.pth", "efficientnet"),
-        "EfficientNet_SD_1e-4": ("checkpoints_efficientnet_sd_1e-4/best_model.pth", "efficientnet"),
-        "EfficientNet_SD_2.5e-5": ("checkpoints_efficientnet_sd_2.5e-5/best_model.pth", "efficientnet"),
+        "ResNet_CIFake": (CHECKPOINTS["resnet50_cifake"], "resnet"),
+        "ResNet_SD_1e-4": (CHECKPOINTS["resnet50_balanced_lr1e-4"], "resnet"),
+        "ResNet_SD_2.5e-5": (CHECKPOINTS["resnet50_balanced_lr2.5e-5"], "resnet"),
+        "EfficientNet_CIFake": (CHECKPOINTS["efficientnet_b0_cifake"], "efficientnet"),
+        "EfficientNet_SD_1e-4": (CHECKPOINTS["efficientnet_b0_balanced_lr1e-4"], "efficientnet"),
+        "EfficientNet_SD_2.5e-5": (CHECKPOINTS["efficientnet_b0_balanced_lr2.5e-5"], "efficientnet"),
     }
 
     # Data
-    sd2_fr_testing_paths = glob.glob("sd2-fr-testing/**/*.png", recursive=True) + glob.glob("sd2-fr-testing/**/*.jpg", recursive=True)
-    sd2_class_fake_paths = glob.glob("sd2-classification/test/FAKE/**/*.png", recursive=True) + glob.glob("sd2-classification/test/FAKE/**/*.jpg", recursive=True)
-    sd2_class_real_paths = glob.glob("sd2-classification/test/REAL/**/*.png", recursive=True) + glob.glob("sd2-classification/test/REAL/**/*.jpg", recursive=True)
+    sd2_fr_testing_paths = glob.glob(f"{SD2_FR_TEST_DIR}/**/*.png", recursive=True) + glob.glob(f"{SD2_FR_TEST_DIR}/**/*.jpg", recursive=True)
+    sd2_class_fake_paths = glob.glob(f"{SD2_CLASS_TEST_DIR}/FAKE/**/*.png", recursive=True) + glob.glob(f"{SD2_CLASS_TEST_DIR}/FAKE/**/*.jpg", recursive=True)
+    sd2_class_real_paths = glob.glob(f"{SD2_CLASS_TEST_DIR}/REAL/**/*.png", recursive=True) + glob.glob(f"{SD2_CLASS_TEST_DIR}/REAL/**/*.jpg", recursive=True)
 
     print(f"Found {len(sd2_fr_testing_paths)} images in sd2-fr-testing (all fake).")
     print(f"Found {len(sd2_class_fake_paths)} FAKE and {len(sd2_class_real_paths)} REAL in sd2-classification/test.")
@@ -147,12 +155,13 @@ def main():
             }
         }
         
-    with open("comprehensive_evaluation_results.json", "w") as f:
+    OUTPUT_PATH.parent.mkdir(parents=True, exist_ok=True)
+    with open(OUTPUT_PATH, "w") as f:
         json.dump(final_results, f, indent=4)
         
     print("\n--- Summary of Results ---")
     print(json.dumps(final_results, indent=4))
-    print("Done! Results saved to comprehensive_evaluation_results.json")
+    print(f"Done! Results saved to {OUTPUT_PATH}")
 
 if __name__ == "__main__":
     main()

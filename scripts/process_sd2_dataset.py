@@ -6,6 +6,14 @@ from tqdm import tqdm
 import random
 import json
 import shutil
+import argparse
+import sys
+from pathlib import Path
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))  # repo root
+from authentilens.paths import DATA_DIR
+
+# Output: balanced 224x224 FAKE/REAL patch dataset (see docs/dataset.md)
+OUT_ROOT = str(DATA_DIR / "sd2-classification")
 
 def extract_valid_crop(mask_arr, target_size=224, condition="fake"):
     h, w = mask_arr.shape
@@ -31,7 +39,7 @@ def process_split(split, mapping):
     random.seed(42)
     img_dir, mask_dir = mapping[split]
     
-    out_dir = f"sd2-classification/{split}"
+    out_dir = os.path.join(OUT_ROOT, split)
     fake_out = os.path.join(out_dir, "FAKE")
     real_out = os.path.join(out_dir, "REAL")
     mask_out = os.path.join(out_dir, "MASKS")
@@ -84,7 +92,7 @@ def process_split(split, mapping):
         img.crop(box).save(out_path)
         box_list = [int(x) for x in box]
         
-        meta_entry = {"label": "FAKE" if cond == "fake" else "REAL", "crop_bbox": box_list, "source": i_path}
+        meta_entry = {"label": "FAKE" if cond == "fake" else "REAL", "crop_bbox": box_list, "source": os.path.relpath(i_path, DATA_DIR)}
         
         if cond == "fake" and m_path:
             mask_img = Image.open(m_path).convert("L")
@@ -109,14 +117,20 @@ def process_split(split, mapping):
     return min_count, metadata
 
 def main():
+    parser = argparse.ArgumentParser(description="Build the balanced SD2 FAKE/REAL patch dataset from SD2-FR.")
+    parser.add_argument("--delete-sources", action="store_true",
+                        help="Delete the raw sd2-fr-* source folders afterwards. Off by default: "
+                             "evaluation still needs data/sd2-fr-testing and data/sd2-fr-testing-masks.")
+    args = parser.parse_args()
+
     mappings = {
-        "train": ("sd2-fr-training", "sd2-fr-training-masks"),
-        "val": ("sd2-fr-validation", "sd2-fr-validation-masks"),
-        "test": ("sd2-fr-testing", "sd2-fr-testing-masks")
+        "train": (str(DATA_DIR / "sd2-fr-training"), str(DATA_DIR / "sd2-fr-training-masks")),
+        "val": (str(DATA_DIR / "sd2-fr-validation"), str(DATA_DIR / "sd2-fr-validation-masks")),
+        "test": (str(DATA_DIR / "sd2-fr-testing"), str(DATA_DIR / "sd2-fr-testing-masks"))
     }
     
-    if os.path.exists("sd2-classification"):
-        shutil.rmtree("sd2-classification")
+    if os.path.exists(OUT_ROOT):
+        shutil.rmtree(OUT_ROOT)
     
     all_metadata = {}
     readme_lines = ["# SD2 Classification Dataset\n", "| Split | FAKE count | REAL count | Total |\n|---|---|---|---|"]
@@ -126,22 +140,19 @@ def main():
         all_metadata[split] = meta
         readme_lines.append(f"| {split} | {count} | {count} | {count*2} |")
         
-    with open("sd2-classification/metadata.json", "w") as f:
+    with open(os.path.join(OUT_ROOT, "metadata.json"), "w") as f:
         json.dump(all_metadata, f, indent=4)
         
-    with open("sd2-classification/README.md", "w") as f:
+    with open(os.path.join(OUT_ROOT, "README.md"), "w") as f:
         f.write("\n".join(readme_lines) + "\n")
         
-    print("Done generating dataset. Deleting old raw source directories...")
-    # Delete original large folders that we extracted from
-    for img_d, msk_d in mappings.values():
-        if os.path.exists(img_d): shutil.rmtree(img_d)
-        if os.path.exists(msk_d): shutil.rmtree(msk_d)
-    
-    if os.path.exists("sd2-patches"): shutil.rmtree("sd2-patches")
-    if os.path.exists("create_patch_dataset.py"): os.remove("create_patch_dataset.py")
-    if os.path.exists("evaluate_sd2_patches.py"): os.remove("evaluate_sd2_patches.py")
-    if os.path.exists("sd2_patches_evaluation.json"): os.remove("sd2_patches_evaluation.json")
+    print(f"Done generating dataset in {OUT_ROOT}.")
+    if args.delete_sources:
+        print("Deleting raw source directories (--delete-sources)...")
+        # Delete original large folders that we extracted from
+        for img_d, msk_d in mappings.values():
+            if os.path.exists(img_d): shutil.rmtree(img_d)
+            if os.path.exists(msk_d): shutil.rmtree(msk_d)
 
 if __name__ == "__main__":
     main()

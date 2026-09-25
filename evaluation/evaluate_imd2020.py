@@ -1,9 +1,11 @@
 """
 ============================================================================
-ApertureAuthentiLens — IMD2020 Evaluation Script
+AuthentiLens — IMD2020 Evaluation Script
 ============================================================================
 Standalone script to evaluate spatial localization accuracy using the
 IMD2020 dataset (or appropriately structured custom datasets).
+
+Requires the FastAPI backend (services/backend) to be running.
 
 Metrics:
     1. Mean Intersection over Union (mIoU)
@@ -23,6 +25,10 @@ import requests
 from sklearn.metrics import average_precision_score
 from tqdm import tqdm
 
+import sys
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))  # repo root
+from authentilens.paths import DATA_DIR
+
 # Configure logging
 logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
 logger = logging.getLogger("evaluator")
@@ -35,13 +41,13 @@ warnings.filterwarnings("ignore", category=UserWarning)
 def parse_args() -> argparse.Namespace:
     """Parse command-line arguments."""
     parser = argparse.ArgumentParser(
-        description="Evaluate ApertureAuthentiLens spatial localization (mIoU, AP)."
+        description="Evaluate AuthentiLens spatial localization (mIoU, AP)."
     )
     parser.add_argument(
         "--dataset",
         type=str,
-        required=True,
-        help="Path to the real IMD2020 root dataset directory containing subfolders.",
+        default=str(DATA_DIR / "IMD2020"),
+        help="Path to the real IMD2020 root dataset directory containing subfolders (default: data/IMD2020).",
     )
     parser.add_argument(
         "--endpoint",
@@ -114,7 +120,7 @@ def calculate_iou(pred_mask: np.ndarray, gt_mask: np.ndarray) -> float:
 
 
 def analyze_image_via_api(img_path: Path, endpoint: str) -> Optional[np.ndarray]:
-    """POST image to API and extract the spatial attention matrix."""
+    """POST image to API and extract the predicted mask probability map."""
     try:
         with open(img_path, "rb") as f:
             files = {"file": (img_path.name, f, "image/jpeg")}
@@ -122,13 +128,15 @@ def analyze_image_via_api(img_path: Path, endpoint: str) -> Optional[np.ndarray]
             
         response.raise_for_status()
         data = response.json()
-        return np.array(data["attention_matrix"], dtype=np.float32)
+        mask = np.array(data["mask"], dtype=np.float32)
+        # An empty mask means segmentation did not run; treat as "nothing flagged".
+        return mask if mask.size else np.zeros((1, 1), dtype=np.float32)
         
     except requests.exceptions.RequestException as e:
         logger.error(f"API Request failed for {img_path.name}: {e}")
         return None
     except KeyError:
-        logger.error(f"API Response missing 'attention_matrix' for {img_path.name}")
+        logger.error(f"API Response missing 'mask' for {img_path.name}")
         return None
 
 
@@ -176,7 +184,7 @@ def main() -> None:
             continue
             
         # 2. Resize prediction to match Ground Truth
-        # Note: attention matrix was [224, 224] from the model
+        # Note: the backend returns a [512, 512] probability map
         pred_resized = cv2.resize(
             pred_attn_matrix, 
             (gt_w, gt_h), 
@@ -210,7 +218,7 @@ def main() -> None:
         
     # Final Reporting
     print("\n" + "="*50)
-    print(" ApertureAuthentiLens — IMD2020 Evaluation Results")
+    print(" AuthentiLens — IMD2020 Evaluation Results")
     print("="*50)
     
     if iou_scores and ap_scores:

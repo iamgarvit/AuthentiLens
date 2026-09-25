@@ -12,13 +12,16 @@ Usage:
 
 import json
 import os
+import sys
 import uuid
 from pathlib import Path
 
-# ── Dataset paths (relative to cv_project root) ─────────────────────────────
-PROJECT_ROOT = Path(__file__).resolve().parent.parent
-SD2_FR_DIR = PROJECT_ROOT / "sd2-fr-testing"
-CUSTOM_TEST_DIR = PROJECT_ROOT / "sd2-classification" / "test"
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))  # repo root
+from authentilens.paths import DATA_DIR as DATASETS_DIR
+
+# ── Dataset paths (under data/, or $AUTHENTILENS_DATA_DIR) ──────────────────
+SD2_FR_DIR = DATASETS_DIR / "sd2-fr-testing"
+CUSTOM_TEST_DIR = DATASETS_DIR / "sd2-classification" / "test"
 
 # ── Output paths ─────────────────────────────────────────────────────────────
 DATA_DIR = Path(__file__).resolve().parent / "data"
@@ -47,7 +50,7 @@ def scan_sd2_fr():
             if img_file.suffix.lower() in IMAGE_EXTENSIONS and img_file.is_file():
                 uid = str(uuid.uuid4())
                 registry[uid] = {
-                    "path": str(img_file.resolve()),
+                    "path": Path(os.path.relpath(img_file, DATASETS_DIR)).as_posix(),
                     "ground_truth": "FAKE",  # All images in sd2-fr-testing are fake
                     "category": category_name,
                     "filename": img_file.name,
@@ -92,7 +95,7 @@ def scan_custom_test():
 
                 uid = str(uuid.uuid4())
                 registry[uid] = {
-                    "path": str(img_file.resolve()),
+                    "path": Path(os.path.relpath(img_file, DATASETS_DIR)).as_posix(),
                     "ground_truth": label,
                     "category": category,
                     "filename": img_file.name,

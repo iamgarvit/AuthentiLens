@@ -6,7 +6,7 @@
 # - Classification: Classifies the overall image (e.g., FAKE/REAL)
 #
 # Run:
-#   streamlit run new_app.py --server.port 8501
+#   streamlit run app/streamlit_app.py --server.port 8501   (from the repo root)
 #
 # Dependencies:
 #   pip install streamlit segmentation-models-pytorch torch torchvision pillow numpy opencv-python
@@ -27,6 +27,10 @@ import psutil
 from PIL import Image
 import matplotlib.colors as mcolors
 from datetime import datetime
+import sys
+from pathlib import Path
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))  # repo root
+from authentilens.paths import CHECKPOINTS, resolve_segmentation_checkpoint
 try:
     import cv2
     from utils_noiseprint import generate_noiseprint_like_from_pil
@@ -47,11 +51,11 @@ SEGMENTATION_IMAGE_SIZE = 512
 SEGMENTATION_MODEL_OPTIONS = {
     'DeepLabV3Plus (best_model)': {
         'architecture': 'deeplabv3plus',
-        'checkpoint_path': './checkpoints_deeplab/best_model.pth',
+        'checkpoint_key': 'deeplabv3plus',
     },
     'UNet (best_model)': {
         'architecture': 'unet',
-        'checkpoint_path': './checkpoints_unet/best_model.pth',
+        'checkpoint_key': 'unet',
     },
 }
 
@@ -60,19 +64,19 @@ CLASSIFIER_IMAGE_SIZE = 224
 CLASSIFIER_MODEL_OPTIONS = {
     'ResNet-50 (sd_2.5e-5)': {
         'architecture': 'resnet50',
-        'checkpoint_path': './checkpoints_resnet_sd_2.5e-5/best_model.pth',
+        'checkpoint_path': str(CHECKPOINTS['resnet50_balanced_lr2.5e-5']),
     },
     'ResNet-50 (sd_1e-4)': {
         'architecture': 'resnet50',
-        'checkpoint_path': './checkpoints_resnet_sd_1e-4/best_model.pth',
+        'checkpoint_path': str(CHECKPOINTS['resnet50_balanced_lr1e-4']),
     },
     'EfficientNet-B0 (sd_2.5e-5)': {
         'architecture': 'efficientnet_b0',
-        'checkpoint_path': './checkpoints_efficientnet_sd_2.5e-5/best_model.pth',
+        'checkpoint_path': str(CHECKPOINTS['efficientnet_b0_balanced_lr2.5e-5']),
     },
     'EfficientNet-B0 (sd_1e-4)': {
         'architecture': 'efficientnet_b0',
-        'checkpoint_path': './checkpoints_efficientnet_sd_1e-4/best_model.pth',
+        'checkpoint_path': str(CHECKPOINTS['efficientnet_b0_balanced_lr1e-4']),
     },
 }
 
@@ -107,12 +111,12 @@ def load_selected_segmentation_models(selected_model_names: tuple):
         if cfg is None:
             continue
 
-        checkpoint_path = cfg['checkpoint_path']
+        # best_model.pth, or the notebook's original filename as a fallback
+        checkpoint_path = resolve_segmentation_checkpoint(cfg['checkpoint_key'])
         architecture = cfg['architecture']
 
-        if not os.path.exists(checkpoint_path):
-            st.warning(f"{model_name} checkpoint not found: {checkpoint_path}")
-            continue
+        if checkpoint_path is None:
+            continue  # weights not available -> classification-only mode
 
         if architecture == 'deeplabv3plus':
             model = smp.DeepLabV3Plus(
@@ -555,6 +559,12 @@ try:
         st.sidebar.success(f'Segmentation models loaded ({len(seg_models)})')
     else:
         st.sidebar.warning('No segmentation model selected/available')
+    missing_seg = [n for n in selected_segmentation_names if n not in seg_models]
+    for name in missing_seg:
+        key = SEGMENTATION_MODEL_OPTIONS[name]['checkpoint_key']
+        st.sidebar.caption(f'{name}: weights not found at `{CHECKPOINTS[key]}`')
+    if selected_segmentation_names and not seg_models:
+        st.warning('Segmentation model not loaded — showing classification only')
 except Exception as e:
     st.error(f'Failed to load segmentation models: {e}')
     st.stop()

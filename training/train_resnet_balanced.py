@@ -11,12 +11,16 @@ from tqdm import tqdm
 from PIL import Image
 import numpy as np
 
+import sys
+from pathlib import Path
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))  # repo root
+from authentilens.paths import DATA_DIR, CLASSIFICATION_CKPT_DIR, lr_tag
+
 # ==========================================
 # CONFIGURATION
 # ==========================================
 CONFIG = {
-    'data_dir': './sd2-classification',
-    'save_dir': './checkpoints_resnet_sd',
+    'data_dir': str(DATA_DIR / 'sd2-classification'),
     'epochs': 15,
     'batch_size': 256, 
     'num_workers': 8, 
@@ -26,6 +30,8 @@ CONFIG = {
     'seed': 42,
     'use_amp': True, 
 }
+# e.g. checkpoints/classification/resnet50_balanced_lr2.5e-5
+CONFIG['save_dir'] = str(CLASSIFICATION_CKPT_DIR / f"resnet50_balanced_lr{lr_tag(CONFIG['lr'])}")
 
 # Reproducibility
 torch.manual_seed(CONFIG['seed'])

@@ -8,6 +8,14 @@ import segmentation_models_pytorch as smp
 import torchvision.transforms.functional as TF
 from PIL import Image
 from tqdm import tqdm
+import sys
+from pathlib import Path
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))  # repo root
+from authentilens.paths import DATA_DIR, RESULTS_DIR, require_segmentation_checkpoint
+
+FAKE_DIR = DATA_DIR / 'sd2-fr-testing'
+MASK_DIR = DATA_DIR / 'sd2-fr-testing-masks'
+OUTPUT_PATH = RESULTS_DIR / 'segmentation' / 'segmentation_only_results.json'
 
 DEVICE = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 MEAN = [0.485, 0.456, 0.406]
@@ -73,11 +81,11 @@ def load_unet(path):
 
 def run_seg_eval(pixel_threshold=0.7):
     segmenters = {
-        'DeepLabV3Plus': load_deeplab('checkpoints_deeplab/best_model.pth'),
-        'UNet': load_unet('checkpoints_unet/best_model.pth')
+        'DeepLabV3Plus': load_deeplab(require_segmentation_checkpoint('deeplabv3plus')),
+        'UNet': load_unet(require_segmentation_checkpoint('unet'))
     }
     
-    img_paths = glob.glob('sd2-fr-testing/*/*.png')
+    img_paths = glob.glob(f'{FAKE_DIR}/*/*.png')
     
     results = {
         'DeepLabV3Plus': {"iou": [], "pixel_acc": []},
@@ -93,7 +101,7 @@ def run_seg_eval(pixel_threshold=0.7):
         cat = os.path.basename(os.path.dirname(img_path))
         fname = os.path.basename(img_path)
         base = fname.split('_sd2')[0]
-        mask_path = os.path.join('sd2-fr-testing-masks', cat, base.replace('.png', '_512.png'))
+        mask_path = os.path.join(MASK_DIR, cat, base.replace('.png', '_512.png'))
         
         has_mask = os.path.exists(mask_path)
         if not has_mask:
@@ -136,9 +144,10 @@ def run_seg_eval(pixel_threshold=0.7):
     print(f"--- Segmentation Metrics (Threshold: {pixel_threshold}) ---")
     print(json.dumps(summary, indent=4))
     
-    with open('segmentation_only_results.json', 'w') as f:
+    OUTPUT_PATH.parent.mkdir(parents=True, exist_ok=True)
+    with open(OUTPUT_PATH, 'w') as f:
         json.dump(summary, f, indent=4)
-    print("Saved to segmentation_only_results.json")
+    print(f"Saved to {OUTPUT_PATH}")
 
 if __name__ == '__main__':
     run_seg_eval(0.7)

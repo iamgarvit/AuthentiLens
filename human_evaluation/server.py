@@ -11,6 +11,7 @@ filenames, or ground truth labels are ever exposed to the client.
 
 import json
 import os
+import sys
 import random
 import threading
 import time
@@ -34,6 +35,22 @@ from PIL import Image
 APP_DIR = Path(__file__).resolve().parent
 DATA_DIR = APP_DIR / "data"
 RESULTS_DIR = APP_DIR / "results"
+
+sys.path.insert(0, str(APP_DIR.parent))  # repo root
+from authentilens.paths import DATA_DIR as DATASETS_DIR  # noqa: E402
+
+
+def resolve_image_path(stored_path):
+    """Resolve a registry path. New registries store paths relative to data/;
+    absolute paths from another machine are re-anchored at the dataset folder."""
+    path = Path(stored_path)
+    if not path.is_absolute():
+        return DATASETS_DIR / path
+    if not path.exists():
+        for anchor in ("sd2-fr-testing", "sd2-classification"):
+            if anchor in path.parts:
+                return DATASETS_DIR.joinpath(*path.parts[path.parts.index(anchor):])
+    return path
 
 # Admin password for stats pages
 ADMIN_PASSWORD = os.environ.get("EVAL_ADMIN_PASSWORD", "authentilens2026")
@@ -249,7 +266,7 @@ def serve_image(dataset, uid):
     if uid not in registries[dataset]:
         abort(404)
 
-    img_path = registries[dataset][uid]["path"]
+    img_path = resolve_image_path(registries[dataset][uid]["path"])
 
     if not os.path.exists(img_path):
         abort(404, description="Image file not found on disk")

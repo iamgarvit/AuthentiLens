@@ -1,4 +1,15 @@
 #!/usr/bin/env python3
+"""Check that a DeepLabV3+ checkpoint loads into the backend architecture.
+
+Usage: python scripts/check_deeplab_checkpoint.py [path/to/checkpoint.pth]
+Defaults to checkpoints/segmentation/deeplabv3plus/best_model.pth
+(or the notebook's original name, best_deeplabv3plus.pth).
+"""
+import sys
+from pathlib import Path
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))  # repo root
+from authentilens.paths import CHECKPOINTS, resolve_segmentation_checkpoint
+
 import torch
 import torch.nn as nn
 import segmentation_models_pytorch as smp
@@ -30,12 +41,11 @@ class CustomDeepLabV3(nn.Module):
 model = CustomDeepLabV3(num_classes=1, decoder_dropout=0.3)
 print("✓ Model architecture created")
 
-# Test checkpoint files in priority order
-checkpoints = [
-    'checkpoints_deeplab/best_deeplabv3plus (1).pth',  # Working version (highest priority)
-    'checkpoints_deeplab/best_model.pth',
-    'checkpoints_deeplab/best_deeplabv3plus.pth'
-]
+# Checkpoint to test: CLI argument, else the canonical path
+if len(sys.argv) > 1:
+    checkpoints = [sys.argv[1]]
+else:
+    checkpoints = [str(resolve_segmentation_checkpoint('deeplabv3plus') or CHECKPOINTS['deeplabv3plus'])]
 
 success = False
 for ckpt_path in checkpoints:

@@ -5,12 +5,16 @@ import torchvision.transforms as T
 from PIL import Image
 import sys
 import os
+from pathlib import Path
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))  # repo root
+from authentilens.paths import CHECKPOINTS
 
 # ==========================================
 # CONFIGURATION
 # ==========================================
-RESNET_CHECKPOINT = "./checkpoints_resnet/best_model.pth"
-EFFICIENTNET_CHECKPOINT = "./checkpoints_efficientnet/best_model.pth"
+# CIFAKE-trained classifiers (see checkpoints/classification/)
+RESNET_CHECKPOINT = CHECKPOINTS["resnet50_cifake"]
+EFFICIENTNET_CHECKPOINT = CHECKPOINTS["efficientnet_b0_cifake"]
 
 # Change these based on your archive's folder names!
 # FastImageFolder sorted them alphabetically, so look at your train folder alphabetically:
@@ -110,6 +114,6 @@ def main(image_path):
 
 if __name__ == "__main__":
     if len(sys.argv) < 2:
-        print("Usage: python inference_classifiers.py <path_to_image>")
+        print("Usage: python scripts/inference_classifiers.py <path_to_image>")
     else:
         main(sys.argv[1])
