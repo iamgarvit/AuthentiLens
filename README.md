@@ -2,7 +2,7 @@
 
 **Detects AI-inpainted images and highlights the regions that were edited.** A classifier decides REAL vs FAKE, and a segmentation network localises the inpainted pixels and can overturn the classifier when it misses a partial edit.
 
-**Live demo:** _coming soon_
+**Model weights:** [iamgarvit/authentilens-weights](https://huggingface.co/iamgarvit/authentilens-weights) &nbsp;·&nbsp; **Live demo:** _not deployed yet_ — the Hugging Face Space is built and ready in [`hf_space/`](hf_space/); run it locally with `streamlit run app/streamlit_app.py`.
 
 ![AuthentiLens demo](docs/images/demo.png)
 
@@ -181,6 +181,27 @@ Or run the API + client without Docker:
 uvicorn main:app --app-dir services/backend --port 8000
 BACKEND_URL=http://localhost:8000 streamlit run services/frontend/app.py
 ```
+
+The demo defaults to the pipeline this project evaluated: EfficientNet-B0
+(balanced, lr 2.5e-5) + DeepLabV3+, pixel threshold 0.7, override 30%. Models
+whose weights are not on disk are hidden rather than offered and broken.
+
+### 3b. Deploy the Hugging Face Space
+
+[`hf_space/`](hf_space/) is a Docker Space that downloads the weights from the
+model repo at startup and then runs `app/streamlit_app.py` unchanged, so the
+deployed demo is this repository's code rather than a copy. `sync.py` assembles
+the upload directory from `hf_space/` plus `app/` and `authentilens/`.
+
+```bash
+hf auth login                                   # a write token
+python hf_space/deploy.py weights --originals-dir /path/to/originals
+python hf_space/deploy.py space
+```
+
+Hugging Face now requires a **PRO subscription** to host Docker (and Gradio)
+Spaces on free `cpu-basic` hardware; only static Spaces are free. `deploy.py`
+fails with HTTP 402 until the account has one.
 
 ### 4. Data, training and evaluation
 
