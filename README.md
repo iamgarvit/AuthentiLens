@@ -2,7 +2,7 @@
 
 **Detects AI-inpainted images and highlights the regions that were edited.** A classifier decides REAL vs FAKE, and a segmentation network localises the inpainted pixels and can overturn the classifier when it misses a partial edit.
 
-**Model weights:** [iamgarvit/authentilens-weights](https://huggingface.co/iamgarvit/authentilens-weights) &nbsp;·&nbsp; **Live demo:** https://authentilens.streamlit.app
+**Model weights:** [iamgarvit/authentilens-weights](https://huggingface.co/iamgarvit/authentilens-weights) &nbsp;·&nbsp; **Live demo:** https://aperture-lens.streamlit.app
 
 ![AuthentiLens demo](docs/images/demo.png)
 
@@ -215,9 +215,13 @@ loaded at startup; other models load the first time they are selected.
 | Python version (Advanced settings) | `3.12` |
 
 Community Cloud installs [`hf_space/requirements.txt`](hf_space/requirements.txt)
-(pinned, CPU-only torch) because it sits next to the entrypoint, and reads
-[`.streamlit/config.toml`](.streamlit/config.toml) from the repository root.
-No secrets are needed. To run it the way Community Cloud does:
+(pinned, CPU-only torch) because it sits next to the entrypoint. Streamlit
+reads [`.streamlit/config.toml`](.streamlit/config.toml) from the repository
+root and also [`hf_space/.streamlit/config.toml`](hf_space/.streamlit/config.toml)
+from the entrypoint's directory, which overrides the root one. That is why the
+`hf_space/` config must not set a port: Community Cloud would use it instead of
+the port it health-checks. The Docker Space passes its port on the command
+line. No secrets are needed. To run it the way Community Cloud does:
 
 ```bash
 python3.12 -m venv .venv && . .venv/bin/activate
