@@ -1,5 +1,7 @@
 # Image Forgery Classification Dataset (SD2)
 
+> Lives at `data/sd2-classification/` (not in git). Generate it with `python scripts/process_sd2_dataset.py`; see [data/README.md](../data/README.md).
+
 This dataset contains perfectly class-balanced 224x224 patches extracted from the SD2 forgery dataset mappings. 
 For every source image containing a manipulated region:
 - `FAKE`: A crop explicitly centered on the bounding box of the generated/manipulated mask.

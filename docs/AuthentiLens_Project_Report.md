@@ -1,5 +1,7 @@
 ﻿# AuthentiLens Project Report
 
+> _Archived report, as submitted. File paths below refer to the original flat repository layout. See the [README](../README.md#repository-structure) for current locations (e.g. `combinations_test_results_0.7.json` is now `results/pipeline/pipeline_pixel0.7_override30pct.json`)._
+
 Last updated: 2026-04-15
 
 ## 1. Project Overview
