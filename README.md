@@ -37,7 +37,7 @@ flowchart LR
 2. **Segmenter** (UNet or DeepLabV3+ with a ResNet-50 encoder) predicts a per-pixel probability that the pixel was inpainted.
 3. **Override:** if the classifier says REAL but more than *X*% of pixels exceed probability 0.7, the pipeline outputs FAKE. We evaluated *X* = 30, 50 and 70; 30% works best.
 
-The FastAPI backend (`services/backend`) implements this rule with **EfficientNet-B0 + DeepLabV3+**, the best combination below. The standalone Streamlit demo (`app/`) lets you pick any combination of models and tune the thresholds.
+The FastAPI backend (`services/backend`) implements this rule with **EfficientNet-B0 + DeepLabV3+**, the best combination below. The standalone Streamlit demo (`app/`) defaults to that same pairing at a pixel threshold of 0.7 and a 30% override, and lets you swap in the other models and tune both thresholds. Architectures, checkpoint loading, inference and the decision rule live in `authentilens/models.py`, which the demo, the live Space and this rule's evaluation all share.
 
 ## Key finding: fake-only benchmarks hide classifier bias
 
@@ -115,7 +115,8 @@ AuthentiLens/
 ├── services/
 │   ├── backend/          # FastAPI inference API (EfficientNet-B0 + DeepLabV3+ pipeline)
 │   └── frontend/         # Streamlit client for the API
-├── authentilens/         # Shared helpers: paths.py (repo-root-relative paths, env overrides)
+├── hf_space/             # Hugging Face Docker Space: runs app/ with weights from the Hub
+├── authentilens/         # Shared code: paths.py (repo-root-relative paths), models.py (pipeline)
 ├── training/             # Classifier training scripts + segmentation notebooks
 ├── evaluation/           # Classifier / segmentation / pipeline / IMD2020 evaluation
 ├── scripts/              # Dataset preparation and small utilities
@@ -142,15 +143,23 @@ pip install -r requirements.txt
 
 ### 2. Get the weights
 
-The classifier checkpoints are stored with **Git LFS**. To download just the model the API uses:
+All checkpoints are stored with **Git LFS**. To download just the two models the default pipeline uses:
 
 ```bash
 git lfs install
-git lfs pull --include="checkpoints/classification/efficientnet_b0_balanced_lr2.5e-5/best_model.pth"
-# or everything: git lfs pull
+git lfs pull --include="checkpoints/classification/efficientnet_b0_balanced_lr2.5e-5/best_model.pth,checkpoints/segmentation/deeplabv3plus/best_model.pth"
+# or everything (~900 MB): git lfs pull
 ```
 
-The **segmentation weights are not in the repo yet**. See [checkpoints/segmentation/deeplabv3plus/README.md](checkpoints/segmentation/deeplabv3plus/README.md) for where to put them and how to retrain them. Without them, the demo and API run in **classification-only mode** and say so on screen.
+The segmentation checkpoints are the **weights-only** copies (107 MB and 130 MB) of the notebooks' training checkpoints, which also carried optimizer state. Provenance, checksums and the conversion are documented in [checkpoints/segmentation/deeplabv3plus/README.md](checkpoints/segmentation/deeplabv3plus/README.md) and [checkpoints/segmentation/unet/README.md](checkpoints/segmentation/unet/README.md).
+
+The same files are mirrored on Hugging Face at [iamgarvit/authentilens-weights](https://huggingface.co/iamgarvit/authentilens-weights), which is where the live demo downloads them from. To use that mirror instead of Git LFS:
+
+```bash
+hf download iamgarvit/authentilens-weights --local-dir checkpoints
+```
+
+Any model whose weights are missing is hidden from the demo, and the API falls back to **classification-only mode** and says so on screen.
 
 Paths can be overridden with `AUTHENTILENS_CHECKPOINT_DIR` and `AUTHENTILENS_DATA_DIR`.
 
