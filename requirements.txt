@@ -1,0 +1,28 @@
+# AuthentiLens: dependencies for the Streamlit demo, the FastAPI backend,
+# inference and evaluation scripts. Install with: pip install -r requirements.txt
+# (requirements-lock.txt pins the exact versions of the environment used for
+# evaluation.)
+
+# Models
+torch>=2.0.0
+torchvision>=0.15.0
+segmentation-models-pytorch>=0.3.0
+
+# Images / numerics
+numpy>=1.24.0
+Pillow>=10.0.0
+opencv-python-headless>=4.8.0
+scipy>=1.10.0
+matplotlib>=3.7.0
+
+# Demo app and API
+streamlit>=1.28.0
+psutil>=5.9.0
+fastapi>=0.100.0
+uvicorn[standard]>=0.22.0
+python-multipart>=0.0.6
+requests>=2.31.0
+
+# Training / evaluation
+tqdm>=4.65.0
+scikit-learn>=1.3.0
