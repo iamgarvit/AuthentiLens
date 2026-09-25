@@ -301,7 +301,7 @@ st.info(
 
 if not AVAILABLE_CLASSIFIERS:
     st.error(
-        'No classifier weights found. Run `git lfs pull` (see the README) so that '
+        'No classifier weights found. Download them (see "Get the weights" in the README) so that '
         'at least one checkpoint under `checkpoints/classification/` is available.'
     )
     st.stop()
@@ -367,7 +367,7 @@ with st.sidebar:
         with st.expander('Models without weights on this machine'):
             for name in hidden_classifiers + hidden_segmenters:
                 st.caption(f'- {name}')
-            st.caption('Fetch them with `git lfs pull`, then reload this page.')
+            st.caption('Download them (see "Get the weights" in the README), then reload this page.')
 
     st.divider()
     st.subheader('Additional analysis')

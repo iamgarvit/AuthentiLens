@@ -103,7 +103,7 @@ def main():
             print(f"Warning: {ckpt_path} not found. Skipping {model_name}.")
             continue
         if is_lfs_pointer(ckpt_path):
-            print(f"Warning: {ckpt_path} is a Git LFS pointer (run `git lfs pull`). Skipping {model_name}.")
+            print(f"Warning: {ckpt_path} is a Git LFS pointer (see \"Get the weights\" in the README). Skipping {model_name}.")
             continue
             
         print(f"\nEvaluating {model_name}...")

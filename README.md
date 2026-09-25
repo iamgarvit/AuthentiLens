@@ -121,7 +121,7 @@ AuthentiLens/
 ├── evaluation/           # Classifier / segmentation / pipeline / IMD2020 evaluation
 ├── scripts/              # Dataset preparation and small utilities
 ├── human_evaluation/     # Human voting app, registries and collected votes
-├── checkpoints/          # Model weights (Git LFS): classification/ and segmentation/
+├── checkpoints/          # Model weights (Git LFS, skipped by clones; see step 2): classification/ and segmentation/
 ├── results/              # Evaluation outputs used in this README
 ├── data/                 # Datasets (not in git), see data/README.md
 ├── docs/                 # Project report, presentation, dataset card
@@ -143,21 +143,33 @@ pip install -r requirements.txt
 
 ### 2. Get the weights
 
-All checkpoints are stored with **Git LFS**. To download just the two models the default pipeline uses:
+By default the weights come from the Hugging Face model repo
+[iamgarvit/authentilens-weights](https://huggingface.co/iamgarvit/authentilens-weights),
+which is also where the live demo downloads them from. No account or token is
+needed:
+
+```bash
+hf download iamgarvit/authentilens-weights --local-dir checkpoints \
+    --include "classification/*" --include "segmentation/*"
+```
+
+That fetches the default pipeline (EfficientNet-B0 balanced lr 2.5e-5 +
+DeepLabV3+) and the UNet, about 250 MB.
+
+The same checkpoints, plus the ResNet-50 and other EfficientNet-B0 runs, are
+also stored in this repository with **Git LFS**. Clones skip them
+([`.lfsconfig`](.lfsconfig) excludes `checkpoints/`), so the `.pth` files in a
+fresh clone are small pointer files. To opt in to the GitHub copies, override
+that exclusion with `--exclude=""`:
 
 ```bash
 git lfs install
-git lfs pull --include="checkpoints/classification/efficientnet_b0_balanced_lr2.5e-5/best_model.pth,checkpoints/segmentation/deeplabv3plus/best_model.pth"
-# or everything (~900 MB): git lfs pull
+git lfs pull --include="checkpoints/**" --exclude=""     # everything, ~900 MB
+# or only the default pipeline:
+git lfs pull --include="checkpoints/classification/efficientnet_b0_balanced_lr2.5e-5/best_model.pth,checkpoints/segmentation/deeplabv3plus/best_model.pth" --exclude=""
 ```
 
-The segmentation checkpoints are the **weights-only** copies (107 MB and 130 MB) of the notebooks' training checkpoints, which also carried optimizer state. Provenance, checksums and the conversion are documented in [checkpoints/segmentation/deeplabv3plus/README.md](checkpoints/segmentation/deeplabv3plus/README.md) and [checkpoints/segmentation/unet/README.md](checkpoints/segmentation/unet/README.md).
-
-The same files are mirrored on Hugging Face at [iamgarvit/authentilens-weights](https://huggingface.co/iamgarvit/authentilens-weights), which is where the live demo downloads them from. To use that mirror instead of Git LFS:
-
-```bash
-hf download iamgarvit/authentilens-weights --local-dir checkpoints
-```
+The segmentation checkpoints are the **weights-only** copies (107 MB and 130 MB) of the notebooks' training checkpoints, which also carried optimizer state. Provenance, checksums and the conversion are documented in [checkpoints/segmentation/deeplabv3plus/README.md](checkpoints/segmentation/deeplabv3plus/README.md) and [checkpoints/segmentation/unet/README.md](checkpoints/segmentation/unet/README.md). The Hub files are byte-identical to the Git LFS ones (same sha256).
 
 Any model whose weights are missing is hidden from the demo, and the API falls back to **classification-only mode** and says so on screen.
 

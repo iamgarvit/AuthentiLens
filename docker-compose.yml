@@ -6,7 +6,7 @@
 #   - frontend: Streamlit interactive web UI           (port 8501)
 #
 # Run from the repo root:  docker compose up --build
-# Weights are mounted read-only from ./checkpoints (run `git lfs pull` first).
+# Weights are mounted read-only from ./checkpoints (see "Get the weights" in the README).
 # Without checkpoints/segmentation/deeplabv3plus/best_model.pth the backend
 # runs in classification-only mode.
 # ============================================================================

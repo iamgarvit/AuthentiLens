@@ -10,9 +10,15 @@ Requires a write token: run `hf auth login` first.
 The weights come from the repository's own checkpoints/ directory, except the
 two full training checkpoints, which are only kept outside the repo; pass
 --originals-dir to include them.
+
+Weights the model repo already holds (same sha256) are skipped, so `weights`
+also works from a clone whose checkpoints/ are still Git LFS pointers (the
+default, see .lfsconfig): a pointer records the sha256 of its file. A pointer
+whose file differs from the Hub copy is refused rather than uploaded.
 """
 
 import argparse
+import hashlib
 import sys
 from pathlib import Path
 
@@ -42,18 +48,25 @@ ORIGINALS = {
 }
 
 
+def local_sha256(path: Path) -> tuple[str, bool]:
+    """The sha256 of a weights file, and whether ``path`` is only its LFS pointer."""
+    with open(path, "rb") as f:
+        head = f.read(1024)
+    if path.stat().st_size <= 1024 and head.startswith(b"version https://git-lfs.github.com/spec"):
+        for line in head.decode().splitlines():
+            if line.startswith("oid sha256:"):
+                return line.split(":", 1)[1].strip(), True
+        raise SystemExit(f"Unreadable Git LFS pointer: {path}")
+    digest = hashlib.sha256()
+    with open(path, "rb") as f:
+        for chunk in iter(lambda: f.read(1 << 20), b""):
+            digest.update(chunk)
+    return digest.hexdigest(), False
+
+
 def upload_weights(api: HfApi, originals_dir: Path | None) -> None:
     api.create_repo(MODEL_REPO, repo_type="model", private=False, exist_ok=True)
     print(f"model repo ready: https://huggingface.co/{MODEL_REPO}")
-
-    api.upload_file(
-        path_or_fileobj=str(SPACE_DIR / "MODEL_CARD.md"),
-        path_in_repo="README.md",
-        repo_id=MODEL_REPO,
-        repo_type="model",
-        commit_message="Add model card",
-    )
-    print("  uploaded README.md (model card)")
 
     targets = dict(WEIGHTS)
     if originals_dir:
@@ -64,9 +77,39 @@ def upload_weights(api: HfApi, originals_dir: Path | None) -> None:
             else:
                 print(f"  skipping {name}: not found in {originals_dir}")
 
+    # Decide everything before uploading anything, so a refused file does not
+    # leave the model repo half-updated.
+    on_hub = {
+        f.path: f.lfs.sha256
+        for f in api.get_paths_info(MODEL_REPO, list(targets.values()), repo_type="model")
+        if getattr(f, "lfs", None)
+    }
+    uploads = {}
     for local, remote in targets.items():
         if not local.exists():
             raise SystemExit(f"Missing weights file: {local}")
+        sha, is_pointer = local_sha256(local)
+        if on_hub.get(remote) == sha:
+            print(f"  unchanged {remote}")
+        elif is_pointer:
+            rel = local.relative_to(REPO_ROOT) if local.is_relative_to(REPO_ROOT) else local
+            raise SystemExit(
+                f"{local} is a Git LFS pointer and the Hub copy of {remote} differs. "
+                f'Fetch it first: git lfs pull --include="{rel}" --exclude=""'
+            )
+        else:
+            uploads[local] = remote
+
+    api.upload_file(
+        path_or_fileobj=str(SPACE_DIR / "MODEL_CARD.md"),
+        path_in_repo="README.md",
+        repo_id=MODEL_REPO,
+        repo_type="model",
+        commit_message="Update model card",
+    )
+    print("  uploaded README.md (model card)")
+
+    for local, remote in uploads.items():
         size_mb = local.stat().st_size / 1e6
         print(f"  uploading {remote} ({size_mb:.0f} MB)...", flush=True)
         api.upload_file(

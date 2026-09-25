@@ -1,0 +1,6 @@
+# Clones skip the model weights in checkpoints/ (about 900 MB of Git LFS
+# bandwidth), including Streamlit Community Cloud's build of the demo, which
+# downloads its weights from the Hugging Face model repo instead. To fetch the
+# GitHub copies anyway, see "Get the weights" in the README.
+[lfs]
+	fetchexclude = checkpoints/**
