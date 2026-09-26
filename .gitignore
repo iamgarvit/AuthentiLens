@@ -10,9 +10,21 @@ __pycache__/
 
 # Virtual environments
 .venv/
+.venv*/
 venv/
 env/
 eval_env/
+
+# Secrets and local credentials
+.env
+.env.*
+!.env.example
+**/.streamlit/secrets.toml
+*.pem
+.huggingface/
+
+# Tool caches (Hugging Face Hub downloads land in .cache/huggingface/)
+.cache/
 
 # Datasets live in data/ and are never committed (see data/README.md)
 data/*

@@ -9,6 +9,7 @@ Security: All images are served via opaque UUID endpoints. No file paths,
 filenames, or ground truth labels are ever exposed to the client.
 """
 
+import hmac
 import json
 import os
 import sys
@@ -52,12 +53,19 @@ def resolve_image_path(stored_path):
                 return DATASETS_DIR.joinpath(*path.parts[path.parts.index(anchor):])
     return path
 
-# Admin password for stats pages
-ADMIN_PASSWORD = os.environ.get("EVAL_ADMIN_PASSWORD", "authentilens2026")
+# Admin password for the stats pages. There is no default: without it the
+# stats pages are disabled and only the voting portals run.
+ADMIN_PASSWORD = os.environ.get("EVAL_ADMIN_PASSWORD", "")
+STATS_DISABLED_MESSAGE = (
+    "The stats pages are disabled because EVAL_ADMIN_PASSWORD is not set. "
+    "Restart the server with EVAL_ADMIN_PASSWORD=<password> to enable them."
+)
 
 # ── Flask setup ──────────────────────────────────────────────────────────────
 app = Flask(__name__)
-app.secret_key = os.environ.get("FLASK_SECRET", "heval-secret-key-change-in-prod-x9k2m")
+# Signs the session cookie. Without FLASK_SECRET a random key is generated per
+# process, so sessions (and stats logins) reset when the server restarts.
+app.secret_key = os.environ.get("FLASK_SECRET") or os.urandom(32).hex()
 
 # ── Thread-safe state ───────────────────────────────────────────────────────
 lock = threading.Lock()
@@ -345,13 +353,32 @@ def record_vote(dataset):
     return jsonify({"status": "ok"})
 
 
-@app.route("/<dataset>/stats")
+def stats_authorized():
+    """True once this session has logged in to the stats pages."""
+    return bool(ADMIN_PASSWORD) and session.get("stats_authorized") is True
+
+
+@app.route("/<dataset>/stats", methods=["GET", "POST"])
 def stats_page(dataset):
-    """Admin stats page (password-protected)."""
+    """Admin stats page (password-protected).
+
+    The password is POSTed from the login form and the login is kept in the
+    signed session, so it never appears in a URL, the browser history or the
+    server's request log.
+    """
     validate_dataset(dataset)
 
-    pwd = request.args.get("pwd", "")
-    if pwd != ADMIN_PASSWORD:
+    if not ADMIN_PASSWORD:
+        return STATS_DISABLED_MESSAGE, 503
+
+    if request.method == "POST":
+        pwd = request.form.get("pwd", "")
+        if hmac.compare_digest(pwd.encode(), ADMIN_PASSWORD.encode()):
+            session["stats_authorized"] = True
+            return redirect(url_for("stats_page", dataset=dataset))
+        return render_template("stats_login.html", dataset=dataset, failed=True), 401
+
+    if not stats_authorized():
         return render_template("stats_login.html", dataset=dataset), 401
 
     registry = registries[dataset]
@@ -444,7 +471,6 @@ def stats_page(dataset):
         overall_accuracy=round(overall_accuracy, 2),
         per_image_data=per_image_data[:100],  # Show top 100 least voted
         per_image_total=len(per_image_data),
-        pwd=pwd,
     )
 
 
@@ -453,8 +479,9 @@ def download_stats(dataset):
     """Download full vote data as JSON."""
     validate_dataset(dataset)
 
-    pwd = request.args.get("pwd", "")
-    if pwd != ADMIN_PASSWORD:
+    if not ADMIN_PASSWORD:
+        return jsonify({"error": STATS_DISABLED_MESSAGE}), 503
+    if not stats_authorized():
         return jsonify({"error": "Unauthorized"}), 401
 
     registry = registries[dataset]
@@ -497,7 +524,10 @@ if __name__ == "__main__":
     print(f"  Human Evaluation Server")
     print(f"  Portal A (sd2-fr-testing):        http://localhost:{port}/sd2-fr/")
     print(f"  Portal B (sd2-classification):     http://localhost:{port}/custom/")
-    print(f"  Stats A:  http://localhost:{port}/sd2-fr/stats?pwd={ADMIN_PASSWORD}")
-    print(f"  Stats B:  http://localhost:{port}/custom/stats?pwd={ADMIN_PASSWORD}")
+    if ADMIN_PASSWORD:
+        print(f"  Stats A:  http://localhost:{port}/sd2-fr/stats")
+        print(f"  Stats B:  http://localhost:{port}/custom/stats")
+    else:
+        print("  Stats:    disabled (set EVAL_ADMIN_PASSWORD to enable them)")
     print(f"{'='*60}\n")
     app.run(host="0.0.0.0", port=port, debug=False)
