@@ -13,7 +13,8 @@
             <h1>🔒 Stats Access</h1>
             <p class="subtitle">Enter the admin password to view evaluation stats</p>
         </div>
-        <form class="login-form" method="GET" action="/{{ dataset }}/stats">
+        {% if failed %}<p class="subtitle">Wrong password.</p>{% endif %}
+        <form class="login-form" method="POST" action="/{{ dataset }}/stats">
             <input type="password" name="pwd" placeholder="Password" class="input-field" autofocus>
             <button type="submit" class="btn btn-real">View Stats</button>
         </form>

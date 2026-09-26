@@ -1,0 +1,7 @@
+# Keep local secrets and caches out of the frontend image (build context is
+# services/frontend, copied with COPY . .).
+.env
+.env.*
+.streamlit/secrets.toml
+__pycache__/
+*.pyc

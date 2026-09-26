@@ -27,10 +27,12 @@ registries in `human_evaluation/data/`. Image paths are stored relative to the d
 ### 3. Run the server
 
 ```bash
-python server.py
+EVAL_ADMIN_PASSWORD='<choose a strong password>' python server.py
 ```
 
-The server starts on `http://localhost:5050`.
+The server starts on `http://localhost:5050`. `EVAL_ADMIN_PASSWORD` is required
+for the stats pages; without it only the voting portals run. Optionally set
+`FLASK_SECRET` so voter sessions survive a restart.
 
 ### 4. Expose to the internet (for remote voters)
 
@@ -55,9 +57,10 @@ Share the generated public URL with your evaluators.
 
 ## Admin Stats
 
-Access stats at `/<dataset>/stats?pwd=<password>`.
-
-Default password: `authentilens2026` (set via `EVAL_ADMIN_PASSWORD` env var).
+Open `/<dataset>/stats` and log in with the `EVAL_ADMIN_PASSWORD` you started
+the server with. The password is sent in a form, not the URL, and the login
+lasts for the browser session. The stats pages include the ground-truth labels,
+so don't share the password with voters.
 
 ## Keyboard Shortcuts
 

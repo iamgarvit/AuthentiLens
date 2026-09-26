@@ -2,3 +2,6 @@
 __pycache__/
 *.pyc
 checkpoints/
+.env
+.env.*
+.streamlit/secrets.toml
